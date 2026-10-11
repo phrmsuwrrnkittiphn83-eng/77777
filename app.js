@@ -5,7 +5,7 @@ const sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const baht=n=>'฿'+Number(n).toLocaleString('th-TH');
 const dt=t=>new Date(t).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
-const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
+const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ',BADQTY:'จำนวนไม่ถูกต้อง',NOSTOCK:'ต้องมีรหัสไอดีอย่างน้อย 1 ไอดี','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
 function em(e){const m=(e&&e.message)||String(e);for(const k in ERR)if(m.includes(k))return ERR[k];return 'เกิดข้อผิดพลาด: '+m}
 const emailOf=u=>u.toLowerCase()+'@ffshop.app';
 
@@ -46,8 +46,8 @@ async function render(){
     nav();
     if(r==='login'&&S.me)return go('');
     if(r===''||!['login','topup','orders','admin'].includes(r)){
-      const [c,p]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,title,description,image_url,price').eq('sold',false).order('created_at',{ascending:false}))]);
-      S.cats=c;S.prods=p;app.innerHTML=home();bindHome();
+      const [c,p,rv]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,title,description,price,stock,product_images(url,sort)').gt('stock',0).order('created_at',{ascending:false})),must(sb.from('site_images').select('*').order('created_at',{ascending:false}).limit(24))]);
+      S.cats=c;S.prods=p;S.reviews=rv;app.innerHTML=home();bindHome();
     }else if(r==='login')app.innerHTML=login('in');
     else if(r==='topup'){S.A.my=await must(sb.from('topups').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(100));app.innerHTML=topup()}
     else if(r==='orders'){S.A.orders=await must(sb.from('orders').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}));app.innerHTML=orders()}
@@ -64,30 +64,46 @@ function nav(){
 }
 
 /* ---------- customer views ---------- */
+const pimgs=p=>(p.product_images||[]).slice().sort((x,y)=>(x.sort||0)-(y.sort||0));
+const closeL=()=>{document.getElementById('layer').innerHTML=''};
+function zoom(u){document.getElementById('layer').innerHTML=`<div class="ov" onclick="closeL()" style="z-index:70"><img src="${esc(u)}" style="max-width:100%;max-height:92vh;border-radius:12px"></div>`}
 function home(){
-  const list=S.prods.filter(p=>(catSel==='all'||p.category_id===catSel)&&(!q||(p.title+p.description).toLowerCase().includes(q.toLowerCase())));
   return `<div class="hero"><h1>🔥 ร้านขายไอดี Free Fire</h1><p>ไอดีคุณภาพ ส่งรหัสทันทีหลังชำระ · เติมเงินผ่าน TrueMoney ไม่มีค่าธรรมเนียม</p><div class="big">🎮</div></div>
   ${S.me?`<div class="panel" style="margin:0 0 14px;padding:16px 18px"><div class="row"><div><div class="mut">ยอดเงินคงเหลือของ ${esc(S.me.username)}</div><div class="price" style="font-size:30px">${baht(S.me.balance)}</div></div><a href="#/topup" class="btn">+ เติมเงิน</a></div></div>`:''}
   <input id="sq" placeholder="🔍 ค้นหาไอดี..." value="${esc(q)}" style="margin-bottom:12px">
-  <div id="catbar" class="chips"></div><div id="plist"></div>`;
+  <div id="catbar" class="chips"></div><div id="plist"></div><div id="revbox"></div>`;
 }
 function drawList(){
   document.getElementById('catbar').innerHTML=`<div class="chip ${catSel==='all'?'on':''}" data-c="all">ทั้งหมด</div>`+S.cats.map(c=>`<div class="chip ${catSel===c.id?'on':''}" data-c="${c.id}">${esc(c.emoji||'')} ${esc(c.name)}</div>`).join('');
   const list=S.prods.filter(p=>(catSel==='all'||p.category_id===catSel)&&(!q||(p.title+p.description).toLowerCase().includes(q.toLowerCase())));
-  document.getElementById('plist').innerHTML=list.length?`<div class="grid">${list.map(p=>{const c=S.cats.find(x=>x.id===p.category_id);return `<div class="card"><div class="pimg">${p.image_url?`<img src="${esc(p.image_url)}" alt="" onerror="this.remove()">`:''}<span style="position:absolute">${p.image_url?'':esc(c?.emoji||'🎮')}</span><span class="tag">${esc(c?.name||'')}</span></div><div class="pb"><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="row"><span class="price">${baht(p.price)}</span><button class="btn sm" data-b="${p.id}">ซื้อเลย</button></div></div></div>`}).join('')}</div>`:`<div class="empty">ไม่พบสินค้าในหมวดนี้</div>`;
+  document.getElementById('plist').innerHTML=list.length?`<div class="grid">${list.map(p=>{const c=S.cats.find(x=>x.id===p.category_id),im=pimgs(p);return `<div class="card" data-o="${p.id}" style="cursor:pointer"><div class="pimg">${im.length?`<img src="${esc(im[0].url)}" alt="" loading="lazy" onerror="this.remove()">`:`<span style="position:absolute">${esc(c?.emoji||'🎮')}</span>`}<span class="tag">${esc(c?.name||'')}</span><span class="stk">เหลือ ${p.stock}</span>${im.length>1?`<span class="cnt">📷 ${im.length}</span>`:''}</div><div class="pb"><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="row"><span class="price">${baht(p.price)}</span><button class="btn sm">ดู / ซื้อ</button></div></div></div>`}).join('')}</div>`:`<div class="empty">ไม่พบสินค้าในหมวดนี้</div>`;
+  document.getElementById('revbox').innerHTML=(S.reviews&&S.reviews.length)?`<h2 style="margin:6px 0 10px">📸 ภาพรีวิวจากลูกค้า</h2><div class="rev">${S.reviews.map(r=>`<img src="${esc(r.url)}" alt="${esc(r.caption)}" loading="lazy" onclick="zoom('${esc(r.url)}')">`).join('')}</div>`:'';
   document.querySelectorAll('.chip').forEach(e=>e.onclick=()=>{catSel=e.dataset.c;drawList()});
-  document.querySelectorAll('[data-b]').forEach(e=>e.onclick=()=>buy(e.dataset.b));
+  document.querySelectorAll('[data-o]').forEach(e=>e.onclick=()=>openProduct(e.dataset.o));
 }
 function bindHome(){const s=document.getElementById('sq');s.oninput=()=>{q=s.value;drawList()};drawList()}
-function buy(id){
-  const u=S.me;if(!u){toast('กรุณาเข้าสู่ระบบก่อนซื้อ');return go('login')}
-  const p=S.prods.find(x=>x.id===id);if(!p)return;
-  if(u.balance<p.price){toast('ยอดเงินไม่พอ กรุณาเติมเงิน');return go('topup')}
-  modal(`<h3 style="margin:0 0 6px">ยืนยันการซื้อ</h3><div>${esc(p.title)}</div><div class="price" style="margin-top:6px">${baht(p.price)}</div><div class="mut">ยอดคงเหลือหลังซื้อ ${baht(u.balance-p.price)}</div>`,async()=>{
-    const ok=await act(()=>must(sb.rpc('buy_product',{p_id:id})));
-    if(ok===false){render();return}
-    toast('ซื้อสำเร็จ! ดูรหัสได้ที่ "ไอดีของฉัน"');go('orders');
-  },'ซื้อ');
+let curP=null,curQty=1;
+function openProduct(id){
+  const p=S.prods.find(x=>x.id===id);if(!p)return;curP=p;curQty=1;
+  const im=pimgs(p),c=S.cats.find(x=>x.id===p.category_id);
+  document.getElementById('layer').innerHTML=`<div class="ov" onclick="if(event.target===this)closeL()"><div class="md" style="max-height:92vh;overflow:auto;max-width:460px">
+  ${im.length?`<div class="gal">${im.map(i=>`<img src="${esc(i.url)}" alt="" onclick="zoom('${esc(i.url)}')">`).join('')}</div>`:`<div class="pimg" style="border-radius:14px"><span style="position:absolute">${esc(c?.emoji||'🎮')}</span></div>`}
+  <h3 style="margin:12px 0 4px">${esc(p.title)}</h3><div class="mut">${esc(c?.name||'')} · เหลือ ${p.stock} ไอดี</div><p style="white-space:pre-wrap">${esc(p.description)}</p>
+  <div class="row"><span class="price">${baht(p.price)} <span class="mut">/ ไอดี</span></span>
+  <div class="qty"><button onclick="setQty(-1)">−</button><b id="qv">1</b><button onclick="setQty(1)">+</button></div></div>
+  <div class="row" style="margin-top:8px"><span class="mut">รวมทั้งหมด</span><b id="tot" class="price">${baht(p.price)}</b></div>
+  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL()">ปิด</button><button class="btn" id="buybtn" onclick="doBuy()">ซื้อเลย</button></div></div></div>`;
+}
+function setQty(d){const m=Math.min(curP.stock,20);curQty=Math.max(1,Math.min(m,curQty+d));document.getElementById('qv').textContent=curQty;document.getElementById('tot').textContent=baht(curP.price*curQty)}
+async function doBuy(){
+  const u=S.me,p=curP,qn=curQty,total=p.price*qn;
+  if(!u){closeL();toast('กรุณาเข้าสู่ระบบก่อนซื้อ');return go('login')}
+  if(u.balance<total){closeL();toast('ยอดเงินไม่พอ กรุณาเติมเงิน');return go('topup')}
+  const b=document.getElementById('buybtn');b.disabled=true;
+  const ok=await act(()=>must(sb.rpc('buy_product',{p_id:p.id,p_qty:qn})));
+  closeL();
+  if(ok===false){render();return}
+  toast('ซื้อสำเร็จ! ดูรหัสได้ที่ "ไอดีของฉัน"');go('orders');
 }
 
 function login(mode){
@@ -147,17 +163,18 @@ async function redeem(){
 }
 function orders(){
   const mine=S.A.orders;
-  return `<div class="panel"><h2>ไอดีของฉัน</h2>${mine.length?mine.map(o=>`<div style="padding:12px 0;border-bottom:1px solid var(--line)"><div class="row"><b>${esc(o.title)}</b><span class="price" style="font-size:16px">${baht(o.price)}</span></div><div class="mut">${dt(o.created_at)}</div><div class="cred" id="cr${o.id}">${esc(o.credentials)}</div><button class="btn g sm" style="margin-top:8px" onclick="cp('${o.id}')">คัดลอกรหัส</button></div>`).join(''):'<div class="empty">ยังไม่มีรายการสั่งซื้อ</div>'}</div>`;
+  return `<div class="panel"><h2>ไอดีของฉัน</h2>${mine.length?mine.map(o=>`<div style="padding:12px 0;border-bottom:1px solid var(--line)"><div class="row"><b>${esc(o.title)}${o.qty>1?' ×'+o.qty:''}</b><span class="price" style="font-size:16px">${baht(o.price)}</span></div><div class="mut">${dt(o.created_at)}</div><div class="cred" id="cr${o.id}">${esc(o.credentials)}</div><button class="btn g sm" style="margin-top:8px" onclick="cp('${o.id}')">คัดลอกรหัส</button></div>`).join(''):'<div class="empty">ยังไม่มีรายการสั่งซื้อ</div>'}</div>`;
 }
 function cp(id){const t=document.getElementById('cr'+id).textContent;try{navigator.clipboard.writeText(t).then(()=>toast('คัดลอกแล้ว'),()=>toast('กดค้างที่ข้อความเพื่อคัดลอก'))}catch(e){toast('กดค้างที่ข้อความเพื่อคัดลอก')}}
 
 /* ---------- admin ---------- */
 async function loadAdmin(){
   const t=adminTab,A={};
-  if(t==='dash'){[A.topups,A.orders,A.users,A.prods]=await Promise.all([must(sb.from('topups').select('*').order('created_at',{ascending:false}).limit(1000)),must(sb.from('orders').select('id,user_id,price,created_at').limit(1000)),must(sb.from('profiles').select('*')),must(sb.from('products').select('id,sold'))])}
+  if(t==='dash'){[A.topups,A.orders,A.users,A.prods]=await Promise.all([must(sb.from('topups').select('*').order('created_at',{ascending:false}).limit(1000)),must(sb.from('orders').select('id,user_id,price,created_at').limit(1000)),must(sb.from('profiles').select('*')),must(sb.from('products').select('id,stock'))])}
   else if(t==='topups')A.topups=await must(sb.from('topups').select('*').order('created_at',{ascending:false}).limit(300));
-  else if(t==='cats'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,sold'))])}
-  else if(t==='prods'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('*').order('created_at',{ascending:false}).limit(500))])}
+  else if(t==='cats'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,stock'))])}
+  else if(t==='prods'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('*,product_images(id,url,path,sort)').order('created_at',{ascending:false}).limit(500))])}
+  else if(t==='reviews')A.reviews=await must(sb.from('site_images').select('*').order('created_at',{ascending:false}));
   else if(t==='codes')A.codes=await must(sb.from('codes').select('*').order('created_at',{ascending:false}));
   else if(t==='orders'){[A.orders,A.users]=await Promise.all([must(sb.from('orders').select('*').order('created_at',{ascending:false}).limit(300)),must(sb.from('profiles').select('id,username'))])}
   else if(t==='users')A.users=await must(sb.from('profiles').select('*').order('created_at',{ascending:false}));
@@ -165,7 +182,7 @@ async function loadAdmin(){
   S.A=A;
 }
 function admin(){
-  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
+  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['reviews','รีวิว'],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
   const pend=S.A.pend.length;
   return `<div class="tabs">${tabs.map(([k,t])=>`<button class="${adminTab===k?'on':''}" onclick="adminTab='${k}';render()">${t}${k==='topups'&&pend?` (${pend})`:''}</button>`).join('')}</div><div class="panel" style="margin-top:0;border-top-left-radius:0">${adminBody()}</div>`;
 }
@@ -181,20 +198,25 @@ function adminBody(){
     return `<h2>ภาพรวมร้าน</h2>
     <div class="stat"><div>เงินเข้าร้านวันนี้ (เติมจริง)<b>${baht(days[0].top)}</b></div><div>ยอดขายวันนี้<b>${baht(days[0].sale)}</b></div><div>เงินเข้าร้านทั้งหมด<b>${baht(sum(okT.filter(x=>kind(x)==='topup')))}</b></div><div>ยอดขายทั้งหมด<b>${baht(sumO(A.orders))}</b></div></div>
     <div class="stat" style="margin-top:10px"><div>ยอดคงเหลือรวมของสมาชิก<b>${baht(members.reduce((s,u)=>s+u.balance,0))}</b></div><div>รอตรวจสอบ<b>${baht(sum(pend))}</b><span class="mut">${pend.length} รายการ</span></div><div>แจกผ่านโค้ด<b>${baht(sum(okT.filter(x=>kind(x)==='code')))}</b></div><div>แอดมินปรับยอดสุทธิ<b>${baht(sum(okT.filter(x=>kind(x)==='admin')))}</b></div></div>
-    <div class="stat" style="margin-top:10px"><div>สินค้าพร้อมขาย<b>${A.prods.filter(p=>!p.sold).length}</b></div><div>สมาชิก<b>${members.length}</b></div><div>ออเดอร์<b>${A.orders.length}</b></div></div>
+    <div class="stat" style="margin-top:10px"><div>สต็อกคงเหลือ (ไอดี)<b>${A.prods.reduce((s,p)=>s+p.stock,0)}</b></div><div>สมาชิก<b>${members.length}</b></div><div>ออเดอร์<b>${A.orders.length}</b></div></div>
     <h2 style="margin-top:24px">7 วันล่าสุด</h2><div class="tw"><table><tr><th>วันที่</th><th>เงินเติมเข้า</th><th>ยอดขาย</th><th>ออเดอร์</th></tr>${days.map(x=>`<tr><td>${x.d.toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</td><td>${baht(x.top)}</td><td>${baht(x.sale)}</td><td>${x.n}</td></tr>`).join('')}</table></div>`;
   }
   if(t==='topups')return `<h2>รายการเติมเงิน</h2><p class="mut">ตรวจยอดเข้าในแอป TrueMoney ให้ตรงกับจำนวนและเวลา แล้วกดอนุมัติเพื่อเติมเครดิตให้สมาชิก</p>${A.topups.length?`<div class="tw"><table><tr><th>เวลา</th><th>ผู้ใช้</th><th>จำนวน</th><th>รายละเอียด</th><th>ประเภท</th><th>สถานะ</th><th></th></tr>${A.topups.map(x=>`<tr><td>${dt(x.created_at)}</td><td>${esc(x.username)}</td><td><b>${baht(x.amount)}</b></td><td>${esc(x.ref)}</td><td>${{topup:'โอนเงิน',code:'โค้ด',admin:'แอดมิน'}[x.kind]}</td><td><span class="st ${x.status}">${{pending:'รอตรวจสอบ',approved:'อนุมัติแล้ว',rejected:'ปฏิเสธ'}[x.status]}</span></td><td>${x.status==='pending'?`<button class="btn s sm" onclick="tAct('${x.id}',true)">อนุมัติ</button> <button class="btn r sm" onclick="tAct('${x.id}',false)">ปฏิเสธ</button>`:''}</td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีรายการ</div>'}`;
   if(t==='cats')return `<h2>จัดการหมวดหมู่</h2><div class="row" style="gap:8px;align-items:stretch"><input id="ce" placeholder="อีโมจิ" style="width:80px"><input id="cn" placeholder="ชื่อหมวดหมู่ใหม่"><button class="btn" onclick="addCat()">เพิ่ม</button></div>
-    <div class="tw" style="margin-top:12px"><table><tr><th>หมวดหมู่</th><th>สินค้าพร้อมขาย</th><th></th></tr>${A.cats.map(c=>`<tr><td>${esc(c.emoji||'')} ${esc(c.name)}</td><td>${A.prods.filter(p=>p.category_id===c.id&&!p.sold).length}</td><td><button class="btn r sm" onclick="delCat('${c.id}')">ลบ</button></td></tr>`).join('')}</table></div>`;
+    <div class="tw" style="margin-top:12px"><table><tr><th>หมวดหมู่</th><th>สต็อก</th><th></th></tr>${A.cats.map(c=>`<tr><td>${esc(c.emoji||'')} ${esc(c.name)}</td><td>${A.prods.filter(p=>p.category_id===c.id&&p.stock>0).length}</td><td><button class="btn r sm" onclick="delCat('${c.id}')">ลบ</button></td></tr>`).join('')}</table></div>`;
   if(t==='prods'){
     if(!A.cats.length)return '<div class="empty">ต้องสร้างหมวดหมู่ก่อน</div>';
     return `<h2>เพิ่มสินค้า</h2><label>หมวดหมู่</label><select id="pc">${A.cats.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
-    <label>ชื่อสินค้า</label><input id="pt"><label>ราคา (บาท)</label><input id="pp" type="number" min="1" inputmode="numeric"><label>รายละเอียด (ลูกค้าเห็น)</label><textarea id="pd" rows="2"></textarea>
-    <label>ลิงก์รูปภาพ (ไม่บังคับ)</label><input id="pi" placeholder="https://..."><label>รหัสไอดี (ลูกค้าเห็นหลังซื้อเท่านั้น)</label><textarea id="pr" rows="3" placeholder="อีเมล/รหัสผ่าน/ช่องทางผูกบัญชี"></textarea>
-    <button class="btn" style="margin-top:12px" onclick="addProd()">เพิ่มสินค้า</button>
-    <h2 style="margin-top:26px">สินค้าทั้งหมด</h2><div class="tw"><table><tr><th>สินค้า</th><th>หมวด</th><th>ราคา</th><th>สถานะ</th><th></th></tr>${A.prods.map(p=>`<tr><td>${esc(p.title)}</td><td>${esc(A.cats.find(c=>c.id===p.category_id)?.name||'-')}</td><td>${baht(p.price)}</td><td>${p.sold?'ขายแล้ว':'พร้อมขาย'}</td><td>${p.sold?'':`<button class="btn r sm" onclick="delProd('${p.id}')">ลบ</button>`}</td></tr>`).join('')}</table></div>`;
+    <label>ชื่อสินค้า</label><input id="pt"><label>ราคาต่อ 1 ไอดี (บาท)</label><input id="pp" type="number" min="1" inputmode="numeric"><label>รายละเอียด (ลูกค้าเห็น)</label><textarea id="pd" rows="2"></textarea>
+    <label>รูปภาพสินค้า / ภาพรีวิว (เลือกได้หลายรูป)</label><input id="pf" type="file" accept="image/*" multiple onchange="prevImgs(this)"><div id="pprev" class="thumbs"></div>
+    <label>รหัสไอดี — ถ้าขายหลายไอดี ให้เว้นบรรทัดว่างคั่นระหว่างแต่ละไอดี (จำนวนที่ขายได้ = จำนวนไอดี)</label><textarea id="pr" rows="6" placeholder="อีเมล: a@x.com&#10;รหัสผ่าน: 1234&#10;&#10;อีเมล: b@x.com&#10;รหัสผ่าน: 5678" oninput="cntIds(this.value,'cnt')"></textarea><div id="cnt" class="mut"></div>
+    <button class="btn" id="addbtn" style="margin-top:12px" onclick="addProd()">เพิ่มสินค้า</button>
+    <h2 style="margin-top:26px">สินค้าทั้งหมด</h2><div class="tw"><table><tr><th>สินค้า</th><th>หมวด</th><th>ราคา</th><th>สต็อก</th><th>รูป</th><th></th></tr>${A.prods.map(p=>`<tr><td>${esc(p.title)}</td><td>${esc(A.cats.find(c=>c.id===p.category_id)?.name||'-')}</td><td>${baht(p.price)}</td><td>${p.stock>0?p.stock:'หมด'}</td><td>${(p.product_images||[]).length}</td><td><button class="btn g sm" onclick="manageImgs('${p.id}')">รูป</button> <button class="btn g sm" onclick="addStock('${p.id}')">+สต็อก</button> <button class="btn r sm" onclick="delProd('${p.id}')">ลบ</button></td></tr>`).join('')}</table></div>`;
   }
+  if(t==='reviews')return `<h2>ภาพรีวิวจากลูกค้า</h2><p class="mut">รูปที่อัปโหลดตรงนี้จะแสดงใต้รายการสินค้าในหน้าแรก</p>
+    <label>เลือกรูป (หลายรูปได้)</label><input id="rf" type="file" accept="image/*" multiple><label>คำอธิบาย (ไม่บังคับ)</label><input id="rcap">
+    <button class="btn" id="rbtn" style="margin-top:12px" onclick="addReviews()">อัปโหลดรูปรีวิว</button>
+    <div class="thumbs" style="margin-top:16px">${A.reviews.length?A.reviews.map(r=>`<div class="th"><img src="${esc(r.url)}" onclick="zoom('${esc(r.url)}')"><button onclick="delReview('${r.id}')">✕</button></div>`).join(''):'<div class="empty" style="width:100%">ยังไม่มีรูปรีวิว</div>'}</div>`;
   if(t==='codes')return `<h2>สร้างโค้ดเติมเงิน</h2><label>โค้ด (เว้นว่าง = สุ่มให้)</label><input id="kc" placeholder="เช่น PIPO100" style="text-transform:uppercase">
     <div class="row" style="gap:8px"><div style="flex:1"><label>จำนวนเงิน (บาท)</label><input id="ka" type="number" min="1" inputmode="numeric"></div><div style="flex:1"><label>ใช้ได้กี่คน</label><input id="km" type="number" min="1" value="1" inputmode="numeric"></div></div>
     <button class="btn" style="margin-top:12px" onclick="addCode()">สร้างโค้ด</button>
@@ -212,17 +234,89 @@ function tAct(id,ok){
 async function addCat(){const n=cn.value.trim();if(!n)return toast('กรอกชื่อหมวดหมู่');
   const r=await act(()=>must(sb.from('categories').insert({name:n,emoji:ce.value.trim()||'🎮'})));if(r===false)return;toast('เพิ่มหมวดหมู่แล้ว');render()}
 function delCat(id){
-  const n=S.A.prods.filter(p=>p.category_id===id&&!p.sold).length;
-  modal(`ลบหมวดหมู่นี้?${n?`<div class="mut">สินค้าที่ยังไม่ขาย ${n} รายการในหมวดนี้จะถูกลบด้วย</div>`:''}`,async()=>{
+  const n=S.A.prods.filter(p=>p.category_id===id&&p.stock>0).length;
+  modal(`ลบหมวดหมู่นี้?${n?`<div class="mut">สินค้าที่ยังมีสต็อก ${n} รายการในหมวดนี้จะถูกลบด้วย</div>`:''}`,async()=>{
     await act(()=>must(sb.from('categories').delete().eq('id',id)));if(catSel===id)catSel='all';render()});
 }
-async function addProd(){
-  const price=Math.floor(+pp.value),title=pt.value.trim(),cred=pr.value.trim();
-  if(!title||price<1||!cred)return toast('กรอกชื่อ ราคา และรหัสไอดีให้ครบ');
-  const r=await act(()=>must(sb.rpc('admin_add_product',{p_cat:pc.value,p_title:title,p_desc:pd.value.trim(),p_img:pi.value.trim(),p_price:price,p_cred:cred})));
-  if(r===false)return;toast('เพิ่มสินค้าแล้ว');render();
+const cntIds=(t,id)=>{const n=t.replace(/\r/g,'').split(/\n[ \t]*\n/).filter(x=>x.trim()).length;document.getElementById(id).textContent=n?`จะได้สต็อก ${n} ไอดี`:''};
+function prevImgs(inp){document.getElementById('pprev').innerHTML=[...inp.files].map(f=>`<div class="th"><img src="${URL.createObjectURL(f)}"></div>`).join('')}
+async function compress(file,max=1280,qlt=.82){
+  const bmp=await createImageBitmap(file).catch(()=>null);if(!bmp)return file;
+  const r=Math.min(1,max/Math.max(bmp.width,bmp.height)),c=document.createElement('canvas');
+  c.width=Math.round(bmp.width*r);c.height=Math.round(bmp.height*r);c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+  return await new Promise(res=>c.toBlob(b=>res(b||file),'image/jpeg',qlt));
 }
-function delProd(id){modal('ลบสินค้านี้?',async()=>{await act(()=>must(sb.from('products').delete().eq('id',id)));render()})}
+async function uploadImg(file,folder){
+  const blob=await compress(file),path=folder+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
+  const {error}=await sb.storage.from('product-images').upload(path,blob,{contentType:'image/jpeg',cacheControl:'31536000'});
+  if(error)throw error;
+  return {path,url:sb.storage.from('product-images').getPublicUrl(path).data.publicUrl};
+}
+async function addProd(){
+  const price=Math.floor(+pp.value),title=pt.value.trim(),cred=pr.value.trim(),files=[...pf.files];
+  if(!title||price<1||!cred)return toast('กรอกชื่อ ราคา และรหัสไอดีให้ครบ');
+  const b=document.getElementById('addbtn');b.disabled=true;
+  const id=await act(()=>must(sb.rpc('admin_add_product',{p_cat:pc.value,p_title:title,p_desc:pd.value.trim(),p_price:price,p_cred:cred})));
+  if(id===false){b.disabled=false;return}
+  let i=0;
+  for(const f of files){toast(`กำลังอัปโหลดรูป ${i+1}/${files.length}...`);
+    try{const u=await uploadImg(f,'products/'+id);await must(sb.from('product_images').insert({product_id:id,url:u.url,path:u.path,sort:i}));i++}
+    catch(e){toast('อัปโหลดรูปไม่สำเร็จ: '+em(e))}}
+  toast('เพิ่มสินค้าแล้ว');render();
+}
+async function manageImgs(id){
+  const rows=await act(()=>must(sb.from('product_images').select('*').eq('product_id',id).order('sort')));if(rows===false)return;
+  document.getElementById('layer').innerHTML=`<div class="ov"><div class="md" style="max-height:90vh;overflow:auto"><h3 style="margin:0">รูปภาพสินค้า</h3>
+  <div class="thumbs">${rows.length?rows.map(r=>`<div class="th"><img src="${esc(r.url)}"><button onclick="delImg('${r.id}','${id}')">✕</button></div>`).join(''):'<div class="mut">ยังไม่มีรูป</div>'}</div>
+  <label>เพิ่มรูป / ภาพรีวิว (เลือกได้หลายรูป)</label><input type="file" id="mf" accept="image/*" multiple>
+  <div class="row" style="margin-top:14px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" id="mub" onclick="addImgs('${id}',${rows.length})">อัปโหลด</button></div></div></div>`;
+}
+async function addImgs(id,start){
+  const files=[...document.getElementById('mf').files];if(!files.length)return toast('เลือกรูปก่อน');
+  document.getElementById('mub').disabled=true;let i=start;
+  for(const f of files){toast(`กำลังอัปโหลด ${i-start+1}/${files.length}...`);
+    try{const u=await uploadImg(f,'products/'+id);await must(sb.from('product_images').insert({product_id:id,url:u.url,path:u.path,sort:i}));i++}
+    catch(e){toast('อัปโหลดไม่สำเร็จ: '+em(e))}}
+  manageImgs(id);
+}
+async function delImg(imgId,pid){
+  const r=await act(()=>must(sb.from('product_images').select('path').eq('id',imgId).maybeSingle()));if(r===false)return;
+  const d=await act(()=>must(sb.from('product_images').delete().eq('id',imgId)));if(d===false)return;
+  if(r&&r.path)await sb.storage.from('product-images').remove([r.path]);
+  manageImgs(pid);
+}
+function addStock(id){
+  modal(`<h3 style="margin:0 0 6px">เพิ่มสต็อก</h3><label>รหัสไอดี (เว้นบรรทัดว่างคั่นแต่ละไอดี)</label><textarea id="sk" rows="6" oninput="cntIds(this.value,'skc')"></textarea><div id="skc" class="mut"></div>`,async()=>{
+    if(!sk.value.trim()){toast('กรอกรหัสไอดี');return false}
+    const n=await act(()=>must(sb.rpc('admin_add_stock',{p_id:id,p_cred:sk.value})));
+    if(n===false)return false;toast('เพิ่มสต็อก '+n+' ไอดีแล้ว');render();
+  },'เพิ่ม');
+}
+function delProd(id){
+  const p=S.A.prods.find(x=>x.id===id);
+  modal(`ลบสินค้า "${esc(p.title)}" พร้อมสต็อกและรูปทั้งหมด?`,async()=>{
+    const paths=(p.product_images||[]).map(i=>i.path).filter(Boolean);
+    const d=await act(()=>must(sb.from('products').delete().eq('id',id)));
+    if(d!==false&&paths.length)await sb.storage.from('product-images').remove(paths);
+    render();
+  });
+}
+async function addReviews(){
+  const files=[...rf.files];if(!files.length)return toast('เลือกรูปก่อน');
+  const cap=rcap.value.trim();document.getElementById('rbtn').disabled=true;let i=0;
+  for(const f of files){toast(`กำลังอัปโหลด ${i+1}/${files.length}...`);
+    try{const u=await uploadImg(f,'reviews');await must(sb.from('site_images').insert({url:u.url,path:u.path,caption:cap}));i++}
+    catch(e){toast('อัปโหลดไม่สำเร็จ: '+em(e))}}
+  toast('เพิ่มรูปรีวิวแล้ว');render();
+}
+function delReview(id){
+  modal('ลบรูปรีวิวนี้?',async()=>{
+    const r=await act(()=>must(sb.from('site_images').select('path').eq('id',id).maybeSingle()));
+    const d=await act(()=>must(sb.from('site_images').delete().eq('id',id)));
+    if(d!==false&&r&&r.path)await sb.storage.from('product-images').remove([r.path]);
+    render();
+  });
+}
 async function addCode(){
   let c=kc.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'');const a=Math.floor(+ka.value),m=Math.floor(+km.value)||1;
   if(!c)c='FF'+Math.random().toString(36).slice(2,8).toUpperCase();
