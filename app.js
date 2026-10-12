@@ -5,7 +5,7 @@ const sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const baht=n=>'฿'+Number(n).toLocaleString('th-TH');
 const dt=t=>new Date(t).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
-const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ',BADQTY:'จำนวนไม่ถูกต้อง',NOSTOCK:'ต้องมีรหัสไอดีอย่างน้อย 1 ไอดี','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
+const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ',BADQTY:'จำนวนไม่ถูกต้อง',BADMSG:'ข้อความต้องมี 1-1000 ตัวอักษร',NOBOX:'ไม่พบกล่องสุ่มนี้',NOPRIZE:'กล่องนี้ยังไม่มีรางวัลให้สุ่ม',TOOFAST:'ส่งข้อความเร็วเกินไป กรุณารอสักครู่',NOSTOCK:'ต้องมีรหัสไอดีอย่างน้อย 1 ไอดี','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
 function em(e){const m=(e&&e.message)||String(e);for(const k in ERR)if(m.includes(k))return ERR[k];return 'เกิดข้อผิดพลาด: '+m}
 const emailOf=u=>u.toLowerCase()+'@ffshop.app';
 
@@ -32,6 +32,12 @@ async function loadMe(){
   const {data}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
   S.me=data||null;
 }
+async function loadUnread(){
+  if(!S.me){S.unread=0;return}
+  try{const r=await sb.from('messages').select('id',{count:'exact',head:true}).eq('is_read',false).eq('sender_role',isAdmin()?'user':'admin');S.unread=r.count||0}catch(e){S.unread=0}
+}
+let chatTimer=null,chatUser=null,gBox=null;
+setInterval(async()=>{if(document.hidden||!S.me)return;await loadUnread();nav()},15000);
 async function must(p){const r=await p;if(r.error)throw r.error;return r.data}
 
 /* ---------- router ---------- */
@@ -39,27 +45,35 @@ addEventListener('hashchange',render);
 async function render(){
   const r=(location.hash||'#/').slice(2).split('/')[0];
   const app=document.getElementById('app');
+  clearInterval(chatTimer);
   try{
-    await loadMe();
-    if(['topup','orders'].includes(r)&&!S.me)return go('login');
+    await loadMe();await loadUnread();
+    if(['topup','orders','chat'].includes(r)&&!S.me)return go('login');
     if(r==='admin'&&!isAdmin())return go(S.me?'':'login');
     nav();
     if(r==='login'&&S.me)return go('');
-    if(r===''||!['login','topup','orders','admin'].includes(r)){
-      const [c,p,rv]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,title,description,price,stock,product_images(url,sort)').gt('stock',0).order('created_at',{ascending:false})),must(sb.from('site_images').select('*').order('created_at',{ascending:false}).limit(24))]);
+    if(r===''||!['login','topup','orders','admin','chat','gacha'].includes(r)){
+      const [c,p,rv]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,title,description,price,stock,is_random,product_images(url,sort)').gt('stock',0).order('created_at',{ascending:false})),must(sb.from('site_images').select('*').order('created_at',{ascending:false}).limit(24))]);
       S.cats=c;S.prods=p;S.reviews=rv;app.innerHTML=home();bindHome();
     }else if(r==='login')app.innerHTML=login('in');
     else if(r==='topup'){S.A.my=await must(sb.from('topups').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(100));app.innerHTML=topup()}
-    else if(r==='orders'){S.A.orders=await must(sb.from('orders').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}));app.innerHTML=orders()}
-    else if(r==='admin'){await loadAdmin();app.innerHTML=admin()}
-    scrollTo(0,0);
+    else if(r==='orders'){S.A.orders=await must(sb.from('orders').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}));S.A.spins=await must(sb.from('gacha_spins').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(100));app.innerHTML=orders()+spinsPanel()}
+    else if(r==='gacha'){S.boxes=await must(sb.from('gacha_boxes').select('*,gacha_prizes(id,name,rarity,weight,kind,credit_amount,image_url,stock)').eq('active',true).order('created_at',{ascending:false}));app.innerHTML=gachaPage()}
+    else if(r==='chat'){
+      S.A.msgs=await must(sb.from('messages').select('*').eq('user_id',S.me.id).order('created_at').limit(200));
+      app.innerHTML=chatPage();scrollChat();
+      if(S.A.msgs.some(x=>x.sender_role==='admin'&&!x.is_read)){await sb.rpc('mark_messages_read');S.unread=0;nav()}
+      chatTimer=setInterval(refreshChat,8000);
+    }
+    else if(r==='admin'){await loadAdmin();app.innerHTML=admin();if(adminTab==='inbox'&&chatUser){scrollChat();chatTimer=setInterval(refreshChat,8000)}}
+    if(r!=='chat'&&!(r==='admin'&&adminTab==='inbox'&&chatUser))scrollTo(0,0);
   }catch(e){app.innerHTML=`<div class="panel"><h2>โหลดข้อมูลไม่สำเร็จ</h2><p class="mut">${esc(em(e))}</p><button class="btn" onclick="render()">ลองใหม่</button></div>`}
 }
 function nav(){
   const u=S.me,r=(location.hash||'#/').slice(2).split('/')[0];
   const a=(h,t)=>`<a href="#/${h}" class="${r===h?'on':''}">${t}</a>`;
-  document.getElementById('nav').innerHTML=a('','หน้าแรก')+(u?
-    `<a href="#/topup" class="bal">💰 ${baht(u.balance)}</a>`+a('topup','เติมเงิน')+a('orders','ไอดีของฉัน')+(u.role==='admin'?a('admin','หลังบ้าน'):'')+`<button onclick="logout()">ออก</button>`
+  document.getElementById('nav').innerHTML=a('','หน้าแรก')+a('gacha','🎁 กล่องสุ่ม')+(u?
+    `<a href="#/topup" class="bal">💰 ${baht(u.balance)}</a>`+a('topup','เติมเงิน')+a('orders','ไอดีของฉัน')+(u.role!=='admin'?a('chat','💬 แชท'+(S.unread?` (${S.unread})`:'')):'')+(u.role==='admin'?a('admin','หลังบ้าน'+(S.unread?` (${S.unread})`:'')):'')+`<button onclick="logout()">ออก</button>`
     :a('login','เข้าสู่ระบบ'));
 }
 
@@ -76,7 +90,7 @@ function home(){
 function drawList(){
   document.getElementById('catbar').innerHTML=`<div class="chip ${catSel==='all'?'on':''}" data-c="all">ทั้งหมด</div>`+S.cats.map(c=>`<div class="chip ${catSel===c.id?'on':''}" data-c="${c.id}">${esc(c.emoji||'')} ${esc(c.name)}</div>`).join('');
   const list=S.prods.filter(p=>(catSel==='all'||p.category_id===catSel)&&(!q||(p.title+p.description).toLowerCase().includes(q.toLowerCase())));
-  document.getElementById('plist').innerHTML=list.length?`<div class="grid">${list.map(p=>{const c=S.cats.find(x=>x.id===p.category_id),im=pimgs(p);return `<div class="card" data-o="${p.id}" style="cursor:pointer"><div class="pimg">${im.length?`<img src="${esc(im[0].url)}" alt="" loading="lazy" onerror="this.remove()">`:`<span style="position:absolute">${esc(c?.emoji||'🎮')}</span>`}<span class="tag">${esc(c?.name||'')}</span><span class="stk">เหลือ ${p.stock}</span>${im.length>1?`<span class="cnt">📷 ${im.length}</span>`:''}</div><div class="pb"><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="row"><span class="price">${baht(p.price)}</span><button class="btn sm">ดู / ซื้อ</button></div></div></div>`}).join('')}</div>`:`<div class="empty">ไม่พบสินค้าในหมวดนี้</div>`;
+  document.getElementById('plist').innerHTML=list.length?`<div class="grid">${list.map(p=>{const c=S.cats.find(x=>x.id===p.category_id),im=pimgs(p);return `<div class="card" data-o="${p.id}" style="cursor:pointer"><div class="pimg">${im.length?`<img src="${esc(im[0].url)}" alt="" loading="lazy" onerror="this.remove()">`:`<span style="position:absolute">${esc(c?.emoji||'🎮')}</span>`}<span class="tag">${esc(c?.name||'')}</span><span class="stk">เหลือ ${p.stock}</span>${p.is_random?'<span class="rnd">🎲 สุ่มไอดี</span>':''}${im.length>1?`<span class="cnt">📷 ${im.length}</span>`:''}</div><div class="pb"><h3>${esc(p.title)}</h3><p>${esc(p.description)}</p><div class="row"><span class="price">${baht(p.price)}</span><button class="btn sm">ดู / ซื้อ</button></div></div></div>`}).join('')}</div>`:`<div class="empty">ไม่พบสินค้าในหมวดนี้</div>`;
   document.getElementById('revbox').innerHTML=(S.reviews&&S.reviews.length)?`<h2 style="margin:6px 0 10px">📸 ภาพรีวิวจากลูกค้า</h2><div class="rev">${S.reviews.map(r=>`<img src="${esc(r.url)}" alt="${esc(r.caption)}" loading="lazy" onclick="zoom('${esc(r.url)}')">`).join('')}</div>`:'';
   document.querySelectorAll('.chip').forEach(e=>e.onclick=()=>{catSel=e.dataset.c;drawList()});
   document.querySelectorAll('[data-o]').forEach(e=>e.onclick=()=>openProduct(e.dataset.o));
@@ -88,11 +102,11 @@ function openProduct(id){
   const im=pimgs(p),c=S.cats.find(x=>x.id===p.category_id);
   document.getElementById('layer').innerHTML=`<div class="ov" onclick="if(event.target===this)closeL()"><div class="md" style="max-height:92vh;overflow:auto;max-width:460px">
   ${im.length?`<div class="gal">${im.map(i=>`<img src="${esc(i.url)}" alt="" onclick="zoom('${esc(i.url)}')">`).join('')}</div>`:`<div class="pimg" style="border-radius:14px"><span style="position:absolute">${esc(c?.emoji||'🎮')}</span></div>`}
-  <h3 style="margin:12px 0 4px">${esc(p.title)}</h3><div class="mut">${esc(c?.name||'')} · เหลือ ${p.stock} ไอดี</div><p style="white-space:pre-wrap">${esc(p.description)}</p>
+  <h3 style="margin:12px 0 4px">${esc(p.title)}</h3><div class="mut">${esc(c?.name||'')} · เหลือ ${p.stock} ไอดี</div><p style="white-space:pre-wrap">${esc(p.description)}</p>${p.is_random?'<div class="rndnote">🎲 สินค้านี้เป็นแบบสุ่ม ระบบจะสุ่มไอดีจากสต็อกให้ ไม่สามารถเลือกเองได้</div>':''}
   <div class="row"><span class="price">${baht(p.price)} <span class="mut">/ ไอดี</span></span>
   <div class="qty"><button onclick="setQty(-1)">−</button><b id="qv">1</b><button onclick="setQty(1)">+</button></div></div>
   <div class="row" style="margin-top:8px"><span class="mut">รวมทั้งหมด</span><b id="tot" class="price">${baht(p.price)}</b></div>
-  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL()">ปิด</button><button class="btn" id="buybtn" onclick="doBuy()">ซื้อเลย</button></div></div></div>`;
+  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL()">ปิด</button><button class="btn" id="buybtn" onclick="doBuy()">${p.is_random?'🎲 สุ่มเลย':'ซื้อเลย'}</button></div></div></div>`;
 }
 function setQty(d){const m=Math.min(curP.stock,20);curQty=Math.max(1,Math.min(m,curQty+d));document.getElementById('qv').textContent=curQty;document.getElementById('tot').textContent=baht(curP.price*curQty)}
 async function doBuy(){
@@ -170,10 +184,20 @@ function cp(id){const t=document.getElementById('cr'+id).textContent;try{navigat
 /* ---------- admin ---------- */
 async function loadAdmin(){
   const t=adminTab,A={};
+  if(t==='dash')A.spins=await must(sb.from('gacha_spins').select('price,credits').limit(5000));
   if(t==='dash'){[A.topups,A.orders,A.users,A.prods]=await Promise.all([must(sb.from('topups').select('*').order('created_at',{ascending:false}).limit(1000)),must(sb.from('orders').select('id,user_id,price,created_at').limit(1000)),must(sb.from('profiles').select('*')),must(sb.from('products').select('id,stock'))])}
   else if(t==='topups')A.topups=await must(sb.from('topups').select('*').order('created_at',{ascending:false}).limit(300));
   else if(t==='cats'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('id,category_id,stock'))])}
   else if(t==='prods'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('*,product_images(id,url,path,sort)').order('created_at',{ascending:false}).limit(500))])}
+  else if(t==='gacha'){
+    A.boxes=await must(sb.from('gacha_boxes').select('*').order('created_at',{ascending:false}));
+    A.prizes=gBox?await must(sb.from('gacha_prizes').select('*').eq('box_id',gBox).order('created_at')):[];
+  }
+  else if(t==='inbox'){
+    A.users=await must(sb.from('profiles').select('id,username'));
+    if(chatUser){await sb.rpc('mark_messages_read',{p_user:chatUser});A.msgs=await must(sb.from('messages').select('*').eq('user_id',chatUser).order('created_at').limit(300));await loadUnread()}
+    else A.msgs=await must(sb.from('messages').select('*').order('created_at',{ascending:false}).limit(1000));
+  }
   else if(t==='reviews')A.reviews=await must(sb.from('site_images').select('*').order('created_at',{ascending:false}));
   else if(t==='codes')A.codes=await must(sb.from('codes').select('*').order('created_at',{ascending:false}));
   else if(t==='orders'){[A.orders,A.users]=await Promise.all([must(sb.from('orders').select('*').order('created_at',{ascending:false}).limit(300)),must(sb.from('profiles').select('id,username'))])}
@@ -182,9 +206,9 @@ async function loadAdmin(){
   S.A=A;
 }
 function admin(){
-  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['reviews','รีวิว'],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
+  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['reviews','รีวิว'],['gacha','กล่องสุ่ม'],['inbox','ข้อความ'+(S.unread?` (${S.unread})`:'')],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
   const pend=S.A.pend.length;
-  return `<div class="tabs">${tabs.map(([k,t])=>`<button class="${adminTab===k?'on':''}" onclick="adminTab='${k}';render()">${t}${k==='topups'&&pend?` (${pend})`:''}</button>`).join('')}</div><div class="panel" style="margin-top:0;border-top-left-radius:0">${adminBody()}</div>`;
+  return `<div class="tabs">${tabs.map(([k,t])=>`<button class="${adminTab===k?'on':''}" onclick="adminTab='${k}';chatUser=null;gBox=null;render()">${t}${k==='topups'&&pend?` (${pend})`:''}</button>`).join('')}</div><div class="panel" style="margin-top:0;border-top-left-radius:0">${adminBody()}</div>`;
 }
 function adminBody(){
   const t=adminTab,A=S.A;
@@ -198,6 +222,7 @@ function adminBody(){
     return `<h2>ภาพรวมร้าน</h2>
     <div class="stat"><div>เงินเข้าร้านวันนี้ (เติมจริง)<b>${baht(days[0].top)}</b></div><div>ยอดขายวันนี้<b>${baht(days[0].sale)}</b></div><div>เงินเข้าร้านทั้งหมด<b>${baht(sum(okT.filter(x=>kind(x)==='topup')))}</b></div><div>ยอดขายทั้งหมด<b>${baht(sumO(A.orders))}</b></div></div>
     <div class="stat" style="margin-top:10px"><div>ยอดคงเหลือรวมของสมาชิก<b>${baht(members.reduce((s,u)=>s+u.balance,0))}</b></div><div>รอตรวจสอบ<b>${baht(sum(pend))}</b><span class="mut">${pend.length} รายการ</span></div><div>แจกผ่านโค้ด<b>${baht(sum(okT.filter(x=>kind(x)==='code')))}</b></div><div>แอดมินปรับยอดสุทธิ<b>${baht(sum(okT.filter(x=>kind(x)==='admin')))}</b></div></div>
+    <div class="stat" style="margin-top:10px"><div>ยอดขายกล่องสุ่ม<b>${baht(A.spins.reduce((s,x)=>s+x.price,0))}</b></div><div>จ่ายเครดิตรางวัลกล่องสุ่ม<b>${baht(A.spins.reduce((s,x)=>s+x.credits,0))}</b></div><div>จำนวนครั้งที่สุ่ม<b>${A.spins.length}</b></div></div>
     <div class="stat" style="margin-top:10px"><div>สต็อกคงเหลือ (ไอดี)<b>${A.prods.reduce((s,p)=>s+p.stock,0)}</b></div><div>สมาชิก<b>${members.length}</b></div><div>ออเดอร์<b>${A.orders.length}</b></div></div>
     <h2 style="margin-top:24px">7 วันล่าสุด</h2><div class="tw"><table><tr><th>วันที่</th><th>เงินเติมเข้า</th><th>ยอดขาย</th><th>ออเดอร์</th></tr>${days.map(x=>`<tr><td>${x.d.toLocaleDateString('th-TH',{day:'numeric',month:'short'})}</td><td>${baht(x.top)}</td><td>${baht(x.sale)}</td><td>${x.n}</td></tr>`).join('')}</table></div>`;
   }
@@ -208,10 +233,39 @@ function adminBody(){
     if(!A.cats.length)return '<div class="empty">ต้องสร้างหมวดหมู่ก่อน</div>';
     return `<h2>เพิ่มสินค้า</h2><label>หมวดหมู่</label><select id="pc">${A.cats.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select>
     <label>ชื่อสินค้า</label><input id="pt"><label>ราคาต่อ 1 ไอดี (บาท)</label><input id="pp" type="number" min="1" inputmode="numeric"><label>รายละเอียด (ลูกค้าเห็น)</label><textarea id="pd" rows="2"></textarea>
+    <label style="display:flex;gap:8px;align-items:center;color:var(--text)"><input id="prnd" type="checkbox" style="width:auto"> 🎲 สินค้าแบบสุ่มไอดี (ลูกค้าไม่ได้เลือกเอง ระบบสุ่มจากสต็อก)</label>
     <label>รูปภาพสินค้า / ภาพรีวิว (เลือกได้หลายรูป)</label><input id="pf" type="file" accept="image/*" multiple onchange="prevImgs(this)"><div id="pprev" class="thumbs"></div>
     <label>รหัสไอดี — ถ้าขายหลายไอดี ให้เว้นบรรทัดว่างคั่นระหว่างแต่ละไอดี (จำนวนที่ขายได้ = จำนวนไอดี)</label><textarea id="pr" rows="6" placeholder="อีเมล: a@x.com&#10;รหัสผ่าน: 1234&#10;&#10;อีเมล: b@x.com&#10;รหัสผ่าน: 5678" oninput="cntIds(this.value,'cnt')"></textarea><div id="cnt" class="mut"></div>
     <button class="btn" id="addbtn" style="margin-top:12px" onclick="addProd()">เพิ่มสินค้า</button>
-    <h2 style="margin-top:26px">สินค้าทั้งหมด</h2><div class="tw"><table><tr><th>สินค้า</th><th>หมวด</th><th>ราคา</th><th>สต็อก</th><th>รูป</th><th></th></tr>${A.prods.map(p=>`<tr><td>${esc(p.title)}</td><td>${esc(A.cats.find(c=>c.id===p.category_id)?.name||'-')}</td><td>${baht(p.price)}</td><td>${p.stock>0?p.stock:'หมด'}</td><td>${(p.product_images||[]).length}</td><td><button class="btn g sm" onclick="manageImgs('${p.id}')">รูป</button> <button class="btn g sm" onclick="addStock('${p.id}')">+สต็อก</button> <button class="btn r sm" onclick="delProd('${p.id}')">ลบ</button></td></tr>`).join('')}</table></div>`;
+    <h2 style="margin-top:26px">สินค้าทั้งหมด</h2><div class="tw"><table><tr><th>สินค้า</th><th>หมวด</th><th>ราคา</th><th>สต็อก</th><th>รูป</th><th>สุ่ม</th><th></th></tr>${A.prods.map(p=>`<tr><td>${esc(p.title)}</td><td>${esc(A.cats.find(c=>c.id===p.category_id)?.name||'-')}</td><td>${baht(p.price)}</td><td>${p.stock>0?p.stock:'หมด'}</td><td>${(p.product_images||[]).length}</td><td><button class="btn g sm" onclick="toggleRnd('${p.id}',${!!p.is_random})">${p.is_random?'🎲 เปิด':'ปิด'}</button></td><td><button class="btn g sm" onclick="manageImgs('${p.id}')">รูป</button> <button class="btn g sm" onclick="addStock('${p.id}')">+สต็อก</button> <button class="btn r sm" onclick="delProd('${p.id}')">ลบ</button></td></tr>`).join('')}</table></div>`;
+  }
+  if(t==='gacha'){
+    if(gBox){
+      const bx=A.boxes.find(x=>x.id===gBox)||{name:'',price:0},ok=A.prizes.filter(p=>p.weight>0&&(p.kind!=='account'||p.stock>0)),tw=ok.reduce((s,p)=>s+p.weight,0);
+      return `<div class="row"><h2 style="margin:0">🎁 ${esc(bx.name)} <span class="mut">฿${bx.price}/ครั้ง</span></h2><button class="btn g sm" onclick="gBox=null;render()">← กลับ</button></div>
+      <h2 style="margin-top:18px">รางวัลในกล่อง</h2>${A.prizes.length?`<div class="tw"><table><tr><th>รางวัล</th><th>ระดับ</th><th>น้ำหนัก</th><th>โอกาส</th><th>ประเภท</th><th>สต็อก</th><th></th></tr>${A.prizes.map(p=>{const live=p.weight>0&&(p.kind!=='account'||p.stock>0);return `<tr><td>${esc(p.name)}</td><td><select style="padding:6px" onchange="setPrize('${p.id}',{rarity:this.value})">${['salt','common','rare','epic','legendary'].map(k=>`<option value="${k}" ${p.rarity===k?'selected':''}>${RAR[k].t}</option>`).join('')}</select></td><td><input type="number" min="0" value="${p.weight}" inputmode="numeric" style="width:84px;padding:6px" onchange="setPrize('${p.id}',{weight:Math.max(0,Math.floor(+this.value)||0)})"></td><td>${live&&tw?(p.weight/tw*100).toFixed(1)+'%':'<span class="mut">หมด</span>'}</td><td>${{account:'ไอดี',credit:'เครดิต ฿'+p.credit_amount,nothing:'ไม่ได้อะไร'}[p.kind]}</td><td>${p.kind==='account'?p.stock:'-'}</td><td>${p.kind==='account'?`<button class="btn g sm" onclick="prizeStock('${p.id}')">+สต็อก</button> `:''}<button class="btn r sm" onclick="delPrize('${p.id}')">ลบ</button></td></tr>`}).join('')}</table></div>`:'<div class="empty">ยังไม่มีรางวัล เพิ่มด้านล่าง</div>'}
+      <h2 style="margin-top:22px">เพิ่มรางวัล</h2><label>ชื่อรางวัล</label><input id="gpn" placeholder="เช่น ไอดีแรงค์ Grandmaster / เกลือ ไม่ได้อะไร">
+      <div class="row" style="gap:8px"><div style="flex:1"><label>ระดับ</label><select id="gpr"><option value="salt">🧂 เกลือ</option><option value="common" selected>ธรรมดา</option><option value="rare">หายาก</option><option value="epic">เอพิค</option><option value="legendary">ตำนาน</option></select></div>
+      <div style="flex:1"><label>น้ำหนัก (ยิ่งมากยิ่งออกบ่อย)</label><input id="gpw" type="number" min="1" value="10" inputmode="numeric"></div></div>
+      <p class="mut" style="margin:6px 0 0">ตัวอย่าง: เกลือ 70, ธรรมดา 20, หายาก 8, ตำนาน 2 → โอกาสออก = น้ำหนัก ÷ ผลรวมน้ำหนัก (ไม่ต้องรวมเป็น 100) แก้น้ำหนักทีหลังได้ในตารางด้านบน ใส่ 0 = ไม่ออก</p>
+      <label>ประเภทรางวัล</label><select id="gpk" onchange="kindUi()"><option value="nothing">ไม่ได้อะไร (เกลือล้วน)</option><option value="credit">ได้เครดิตคืน</option><option value="account">ได้ไอดี (มีสต็อก)</option></select>
+      <div id="gcrw" style="display:none"><label>เครดิตที่ได้ (บาท)</label><input id="gpc" type="number" min="1" inputmode="numeric"></div>
+      <div id="gcdw" style="display:none"><label>รหัสไอดี (เว้นบรรทัดว่างคั่นแต่ละไอดี = สต็อก)</label><textarea id="gpd" rows="5" oninput="cntIds(this.value,'gcnt')"></textarea><div id="gcnt" class="mut"></div></div>
+      <label>รูปรางวัล (ไม่บังคับ)</label><input id="gpi" type="file" accept="image/*">
+      <button class="btn" id="gpb" style="margin-top:12px" onclick="addPrize()">เพิ่มรางวัล</button>`;
+    }
+    return `<h2>สร้างกล่องสุ่ม</h2><label>ชื่อกล่อง</label><input id="gn"><label>ราคาต่อการสุ่ม 1 ครั้ง (บาท)</label><input id="gp" type="number" min="1" inputmode="numeric"><label>รายละเอียด</label><textarea id="gd" rows="2"></textarea>
+    <label>รูปปกกล่อง (ไม่บังคับ)</label><input id="gf" type="file" accept="image/*"><button class="btn" id="gbb" style="margin-top:12px" onclick="addBox()">สร้างกล่อง</button>
+    <h2 style="margin-top:26px">กล่องทั้งหมด</h2>${A.boxes.length?`<div class="tw"><table><tr><th>กล่อง</th><th>ราคา</th><th>สถานะ</th><th></th></tr>${A.boxes.map(x=>`<tr><td>${esc(x.name)}</td><td>${baht(x.price)}</td><td>${x.active?'เปิด':'ปิด'}</td><td><button class="btn sm" onclick="gBox='${x.id}';render()">จัดการรางวัล</button> <button class="btn g sm" onclick="toggleOdds('${x.id}',${x.show_odds!==false})">โอกาส: ${x.show_odds!==false?'โชว์':'ซ่อน'}</button> <button class="btn g sm" onclick="toggleBox('${x.id}',${x.active})">${x.active?'ปิดกล่อง':'เปิดกล่อง'}</button> <button class="btn r sm" onclick="delBox('${x.id}')">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีกล่อง</div>'}`;
+  }
+  if(t==='inbox'){
+    if(chatUser){const u=A.users.find(x=>x.id===chatUser);
+      return `<div class="row"><h2 style="margin:0">💬 ${esc(u?.username||'ลูกค้า')}</h2><button class="btn g sm" onclick="chatUser=null;render()">← กลับ</button></div>
+      <div style="margin-top:12px">${chatBox(A.msgs,'admin')}</div>
+      <div class="row" style="gap:8px;margin-top:12px;align-items:stretch"><textarea id="cm" rows="2" placeholder="พิมพ์ข้อความตอบกลับ..." style="flex:1"></textarea><button class="btn" onclick="sendMsg(true)">ส่ง</button></div>`}
+    const g={};for(const m of A.msgs){const x=g[m.user_id]||(g[m.user_id]={last:m,unread:0});if(m.sender_role==='user'&&!m.is_read)x.unread++}
+    const ids=Object.keys(g);
+    return `<h2>ข้อความจากลูกค้า</h2>${ids.length?ids.map(id=>`<div class="conv" onclick="chatUser='${id}';render()"><div class="row"><b>${esc(A.users.find(u=>u.id===id)?.username||'-')}</b><span class="mut">${dt(g[id].last.created_at)}</span></div><div class="row"><span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%">${g[id].last.sender_role==='admin'?'คุณ: ':''}${esc(g[id].last.body)}</span>${g[id].unread?`<span class="st rejected">${g[id].unread} ใหม่</span>`:''}</div></div>`).join(''):'<div class="empty">ยังไม่มีข้อความ</div>'}`;
   }
   if(t==='reviews')return `<h2>ภาพรีวิวจากลูกค้า</h2><p class="mut">รูปที่อัปโหลดตรงนี้จะแสดงใต้รายการสินค้าในหน้าแรก</p>
     <label>เลือกรูป (หลายรูปได้)</label><input id="rf" type="file" accept="image/*" multiple><label>คำอธิบาย (ไม่บังคับ)</label><input id="rcap">
@@ -258,6 +312,7 @@ async function addProd(){
   const b=document.getElementById('addbtn');b.disabled=true;
   const id=await act(()=>must(sb.rpc('admin_add_product',{p_cat:pc.value,p_title:title,p_desc:pd.value.trim(),p_price:price,p_cred:cred})));
   if(id===false){b.disabled=false;return}
+  if(prnd.checked)await sb.from('products').update({is_random:true}).eq('id',id);
   let i=0;
   for(const f of files){toast(`กำลังอัปโหลดรูป ${i+1}/${files.length}...`);
     try{const u=await uploadImg(f,'products/'+id);await must(sb.from('product_images').insert({product_id:id,url:u.url,path:u.path,sort:i}));i++}
@@ -316,6 +371,113 @@ function delReview(id){
     if(d!==false&&r&&r.path)await sb.storage.from('product-images').remove([r.path]);
     render();
   });
+}
+const bubbles=(m,role)=>m.length?m.map(x=>`<div class="b ${x.sender_role===role?'me':''}">${esc(x.body)}<small>${dt(x.created_at)}</small></div>`).join(''):'<div class="empty">ยังไม่มีข้อความ</div>';
+const chatBox=(m,role)=>`<div class="chat" id="chatlist">${bubbles(m,role)}</div>`;
+function chatPage(){return `<div class="panel" style="max-width:640px;margin-left:auto;margin-right:auto"><h2>💬 แชทกับร้าน</h2>${chatBox(S.A.msgs,'user')}
+  <div class="row" style="gap:8px;margin-top:12px;align-items:stretch"><textarea id="cm" rows="2" placeholder="พิมพ์ข้อความถึงร้าน เช่น สอบถามสินค้า แจ้งปัญหา..." style="flex:1"></textarea><button class="btn" onclick="sendMsg(false)">ส่ง</button></div>
+  <p class="mut" style="margin:10px 0 0">ร้านจะตอบกลับในหน้านี้ (เช็กข้อความใหม่ทุก 8 วินาที)</p></div>`}
+function scrollChat(){const el=document.getElementById('chatlist');if(el)el.scrollTop=el.scrollHeight}
+async function refreshChat(){
+  const r=(location.hash||'#/').slice(2).split('/')[0];
+  try{
+    let m,role;
+    if(r==='chat'&&S.me){m=await must(sb.from('messages').select('*').eq('user_id',S.me.id).order('created_at').limit(200));role='user';if(m.some(x=>x.sender_role==='admin'&&!x.is_read))await sb.rpc('mark_messages_read')}
+    else if(r==='admin'&&adminTab==='inbox'&&chatUser){m=await must(sb.from('messages').select('*').eq('user_id',chatUser).order('created_at').limit(300));role='admin';await sb.rpc('mark_messages_read',{p_user:chatUser})}
+    else return;
+    const el=document.getElementById('chatlist');if(!el)return;
+    const end=el.scrollHeight-el.scrollTop-el.clientHeight<80;el.innerHTML=bubbles(m,role);if(end)el.scrollTop=el.scrollHeight;
+  }catch(e){}
+}
+async function sendMsg(isAdm){
+  const t=cm.value.trim();if(!t)return;
+  const r=isAdm?await act(()=>must(sb.rpc('admin_send_message',{p_user:chatUser,p_body:t}))):await act(()=>must(sb.rpc('send_message',{p_body:t})));
+  if(r===false)return;cm.value='';await refreshChat();scrollChat();
+}
+async function toggleRnd(id,cur){const r=await act(()=>must(sb.from('products').update({is_random:!cur}).eq('id',id)));if(r!==false)render()}
+const RAR={salt:{t:'เกลือ 🧂',c:'#6b7280'},common:{t:'ธรรมดา',c:'#16a34a'},rare:{t:'หายาก',c:'#2563eb'},epic:{t:'เอพิค',c:'#7c3aed'},legendary:{t:'ตำนาน 🌟',c:'#f59e0b'}};
+const rarChip=r=>`<span class="rc" style="background:${(RAR[r]||RAR.common).c}">${(RAR[r]||RAR.common).t}</span>`;
+function gachaPage(){
+  return `<div class="hero" style="background:radial-gradient(circle at 85% 20%,rgba(255,255,255,.28),transparent 45%),linear-gradient(135deg,#7c3aed,#ec4899)"><h1>🎁 กล่องสุ่ม</h1><p>ลุ้นรับไอดีเทพและรางวัลพิเศษ</p><div class="big">🎲</div></div>
+  ${S.boxes.length?`<div class="grid">${S.boxes.map(b=>`<div class="card" style="cursor:pointer" onclick="openBox('${b.id}')"><div class="pimg" style="background:linear-gradient(135deg,#7c3aed,#ec4899)">${b.image_url?`<img src="${esc(b.image_url)}" alt="" onerror="this.remove()">`:'<span style="position:absolute">🎁</span>'}<span class="tag">${(b.gacha_prizes||[]).length} รางวัล</span></div><div class="pb"><h3>${esc(b.name)}</h3><p>${esc(b.description)}</p><div class="row"><span class="price">${baht(b.price)} <span class="mut">/ครั้ง</span></span><button class="btn sm">ดู / สุ่ม</button></div></div></div>`).join('')}</div>`:'<div class="empty">ยังไม่มีกล่องสุ่ม</div>'}`;
+}
+function openBox(id){
+  const b=S.boxes.find(x=>x.id===id);if(!b)return;curBox=b;
+  const ok=(b.gacha_prizes||[]).filter(p=>p.weight>0&&(p.kind!=='account'||p.stock>0)),tw=ok.reduce((s,p)=>s+p.weight,0);
+  const list=ok.slice().sort((x,y)=>x.weight-y.weight);
+  document.getElementById('layer').innerHTML=`<div class="ov" onclick="if(event.target===this){closeL();render()}"><div class="md" style="max-height:92vh;overflow:auto;max-width:460px" id="boxmd">
+  <h3 style="margin:0 0 4px">🎁 ${esc(b.name)}</h3><p class="mut" style="white-space:pre-wrap;margin:0 0 10px">${esc(b.description)}</p>
+  <b>${b.show_odds!==false?'รางวัลและโอกาสที่จะได้':'รางวัลที่มีในกล่อง'}</b>
+  <div style="margin-top:6px">${list.length?list.map(p=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span style="display:flex;gap:8px;align-items:center">${p.image_url?`<img src="${esc(p.image_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover">`:''}<span>${esc(p.name)}<br>${rarChip(p.rarity)}</span></span>${b.show_odds!==false?`<b>${(p.weight/tw*100).toFixed(1)}%</b>`:''}</div>`).join(''):'<div class="mut">ยังไม่มีรางวัลให้สุ่ม</div>'}</div>
+  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" id="spinbtn" onclick="doSpin()" ${list.length?'':'disabled'}>🎲 สุ่มเลย ${baht(b.price)}</button></div></div></div>`;
+}
+let curBox=null;
+async function doSpin(){
+  const u=S.me,b=curBox;
+  if(!u){closeL();toast('กรุณาเข้าสู่ระบบก่อนสุ่ม');return go('login')}
+  if(u.balance<b.price){closeL();toast('ยอดเงินไม่พอ กรุณาเติมเงิน');return go('topup')}
+  const md=document.getElementById('boxmd');
+  md.innerHTML=`<div class="shake">🎁</div><p style="text-align:center">กำลังสุ่ม...</p>`;
+  const [res]=await Promise.all([act(()=>must(sb.rpc('spin_gacha',{p_box:b.id}))),new Promise(r=>setTimeout(r,1400))]);
+  if(res===false){closeL();render();return}
+  const R=RAR[res.rarity]||RAR.common,salt=res.rarity==='salt'||res.kind==='nothing';
+  md.innerHTML=`<div class="pop" style="text-align:center"><div style="font-size:64px">${salt?'🧂':res.rarity==='legendary'?'🌟':'🎉'}</div>
+  <div style="margin:6px 0">${rarChip(res.rarity)}</div><h3 style="margin:4px 0">${esc(res.prize_name)}</h3>
+  ${res.image_url?`<img src="${esc(res.image_url)}" style="max-width:100%;max-height:200px;border-radius:12px;margin:8px 0">`:''}
+  ${res.kind==='credit'?`<p>ได้รับเครดิต <b class="price">${baht(res.credits)}</b> เข้ากระเป๋าแล้ว</p>`:''}
+  ${res.kind==='nothing'?`<p class="mut">เสียใจด้วย รอบนี้ได้เกลือ ลองใหม่อีกครั้งนะ</p>`:''}
+  ${res.kind==='account'?`<p class="mut">รหัสไอดีของคุณ (เก็บไว้ที่ "ไอดีของฉัน" ด้วย)</p><div class="cred" id="rescred" style="text-align:left">${esc(res.credentials)}</div><button class="btn g sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('rescred').textContent).then(()=>toast('คัดลอกแล้ว'))">คัดลอกรหัส</button>`:''}
+  </div><div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" onclick="again()">🎲 สุ่มอีกครั้ง</button></div>`;
+  await loadMe();nav();
+}
+async function again(){
+  await render();
+  openBox(curBox.id);
+}
+function spinsPanel(){
+  const s=S.A.spins||[];if(!s.length)return '';
+  return `<div class="panel"><h2>🎁 ประวัติกล่องสุ่ม</h2>${s.map(x=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row"><b>${esc(x.prize_name)}</b>${rarChip(x.rarity)}</div><div class="mut">${esc(x.box_name)} · ${baht(x.price)} · ${dt(x.created_at)}${x.kind==='credit'?` · ได้เครดิต ${baht(x.credits)}`:''}</div>${x.credentials?`<div class="cred">${esc(x.credentials)}</div>`:''}</div>`).join('')}</div>`;
+}
+function kindUi(){const k=document.getElementById('gpk').value;document.getElementById('gcrw').style.display=k==='credit'?'block':'none';document.getElementById('gcdw').style.display=k==='account'?'block':'none'}
+async function addBox(){
+  const n=gn.value.trim(),p=Math.floor(+gp.value);if(!n||p<1)return toast('กรอกชื่อและราคา');
+  document.getElementById('gbb').disabled=true;let img={url:'',path:''};
+  if(gf.files[0]){try{img=await uploadImg(gf.files[0],'gacha')}catch(e){toast('อัปโหลดรูปไม่สำเร็จ: '+em(e))}}
+  const r=await act(()=>must(sb.from('gacha_boxes').insert({name:n,price:p,description:gd.value.trim(),image_url:img.url,image_path:img.path})));
+  if(r===false){document.getElementById('gbb').disabled=false;return}toast('สร้างกล่องแล้ว');render();
+}
+async function setPrize(id,patch){const r=await act(()=>must(sb.from('gacha_prizes').update(patch).eq('id',id)));if(r!==false){toast('บันทึกแล้ว');render()}}
+async function toggleOdds(id,cur){const r=await act(()=>must(sb.from('gacha_boxes').update({show_odds:!cur}).eq('id',id)));if(r!==false){toast(cur?'ซ่อนโอกาสจากลูกค้าแล้ว':'แสดงโอกาสให้ลูกค้าเห็นแล้ว');render()}}
+async function toggleBox(id,cur){const r=await act(()=>must(sb.from('gacha_boxes').update({active:!cur}).eq('id',id)));if(r!==false)render()}
+function delBox(id){
+  const b=S.A.boxes.find(x=>x.id===id);
+  modal(`ลบกล่อง "${esc(b.name)}" พร้อมรางวัลทั้งหมด?`,async()=>{
+    const d=await act(()=>must(sb.from('gacha_boxes').delete().eq('id',id)));
+    if(d!==false&&b.image_path)await sb.storage.from('product-images').remove([b.image_path]);render()});
+}
+async function addPrize(){
+  const name=gpn.value.trim(),w=Math.floor(+gpw.value),k=gpk.value,cr=Math.floor(+gpc.value)||0,cd=gpd.value;
+  if(!name||w<1)return toast('กรอกชื่อรางวัลและน้ำหนัก');
+  if(k==='credit'&&cr<1)return toast('กรอกจำนวนเครดิต');
+  if(k==='account'&&!cd.trim())return toast('กรอกรหัสไอดี');
+  document.getElementById('gpb').disabled=true;
+  const id=await act(()=>must(sb.rpc('admin_add_prize',{p_box:gBox,p_name:name,p_rarity:gpr.value,p_weight:w,p_kind:k,p_credit:cr,p_cred:cd})));
+  if(id===false){document.getElementById('gpb').disabled=false;return}
+  if(gpi.files[0]){try{const u=await uploadImg(gpi.files[0],'gacha');await must(sb.from('gacha_prizes').update({image_url:u.url,image_path:u.path}).eq('id',id))}catch(e){toast('อัปโหลดรูปไม่สำเร็จ: '+em(e))}}
+  toast('เพิ่มรางวัลแล้ว');render();
+}
+function prizeStock(id){
+  modal(`<h3 style="margin:0 0 6px">เพิ่มสต็อกรางวัล</h3><label>รหัสไอดี (เว้นบรรทัดว่างคั่นแต่ละไอดี)</label><textarea id="psk" rows="6" oninput="cntIds(this.value,'pskc')"></textarea><div id="pskc" class="mut"></div>`,async()=>{
+    if(!psk.value.trim()){toast('กรอกรหัสไอดี');return false}
+    const n=await act(()=>must(sb.rpc('admin_add_prize_stock',{p_prize:id,p_cred:psk.value})));
+    if(n===false)return false;toast('เพิ่มสต็อก '+n+' ไอดีแล้ว');render();
+  },'เพิ่ม');
+}
+function delPrize(id){
+  const p=S.A.prizes.find(x=>x.id===id);
+  modal(`ลบรางวัล "${esc(p.name)}"?`,async()=>{
+    const d=await act(()=>must(sb.from('gacha_prizes').delete().eq('id',id)));
+    if(d!==false&&p.image_path)await sb.storage.from('product-images').remove([p.image_path]);render()});
 }
 async function addCode(){
   let c=kc.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'');const a=Math.floor(+ka.value),m=Math.floor(+km.value)||1;
