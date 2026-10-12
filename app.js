@@ -58,7 +58,10 @@ async function render(){
     }else if(r==='login')app.innerHTML=login('in');
     else if(r==='topup'){S.A.my=await must(sb.from('topups').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(100));app.innerHTML=topup()}
     else if(r==='orders'){S.A.orders=await must(sb.from('orders').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}));S.A.spins=await must(sb.from('gacha_spins').select('*').eq('user_id',S.me.id).order('created_at',{ascending:false}).limit(100));app.innerHTML=orders()+spinsPanel()}
-    else if(r==='gacha'){S.boxes=await must(sb.from('gacha_boxes').select('*,gacha_prizes(id,name,rarity,weight,kind,credit_amount,image_url,stock)').eq('active',true).order('created_at',{ascending:false}));app.innerHTML=gachaPage()}
+    else if(r==='gacha'){
+      S.boxes=await must(sb.from('gacha_boxes').select('*,gacha_prizes(id,name,kind,credit_amount,image_url,stock,visible),gacha_guarantees(id,every_n,prize_id)').eq('active',true).order('created_at',{ascending:false}));
+      S.pity={};if(S.me){try{(await must(sb.from('gacha_pity').select('rule_id,counter'))).forEach(x=>S.pity[x.rule_id]=x.counter)}catch(e){}}
+      app.innerHTML=gachaPage()}
     else if(r==='chat'){
       S.A.msgs=await must(sb.from('messages').select('*').eq('user_id',S.me.id).order('created_at').limit(200));
       app.innerHTML=chatPage();scrollChat();
@@ -191,7 +194,8 @@ async function loadAdmin(){
   else if(t==='prods'){[A.cats,A.prods]=await Promise.all([must(sb.from('categories').select('*').order('created_at')),must(sb.from('products').select('*,product_images(id,url,path,sort)').order('created_at',{ascending:false}).limit(500))])}
   else if(t==='gacha'){
     A.boxes=await must(sb.from('gacha_boxes').select('*').order('created_at',{ascending:false}));
-    A.prizes=gBox?await must(sb.from('gacha_prizes').select('*').eq('box_id',gBox).order('created_at')):[];
+    A.prizes=gBox?await must(sb.from('gacha_prizes').select('*,gacha_prize_weights(weight)').eq('box_id',gBox).order('created_at')):[];
+    A.rules=gBox?await must(sb.from('gacha_guarantees').select('*').eq('box_id',gBox).order('every_n')):[];
   }
   else if(t==='inbox'){
     A.users=await must(sb.from('profiles').select('id,username'));
@@ -241,22 +245,25 @@ function adminBody(){
   }
   if(t==='gacha'){
     if(gBox){
-      const bx=A.boxes.find(x=>x.id===gBox)||{name:'',price:0},ok=A.prizes.filter(p=>p.weight>0&&(p.kind!=='account'||p.stock>0)),tw=ok.reduce((s,p)=>s+p.weight,0);
+      const bx=A.boxes.find(x=>x.id===gBox)||{name:'',price:0};
+      const wOf=p=>{const w=p.gacha_prize_weights;return Array.isArray(w)?(w[0]?w[0].weight:0):(w?w.weight:0)};
+      const live=p=>wOf(p)>0&&(p.kind!=='account'||p.stock>0),tw=A.prizes.filter(live).reduce((s,p)=>s+wOf(p),0);
       return `<div class="row"><h2 style="margin:0">🎁 ${esc(bx.name)} <span class="mut">฿${bx.price}/ครั้ง</span></h2><button class="btn g sm" onclick="gBox=null;render()">← กลับ</button></div>
-      <h2 style="margin-top:18px">รางวัลในกล่อง</h2>${A.prizes.length?`<div class="tw"><table><tr><th>รางวัล</th><th>ระดับ</th><th>น้ำหนัก</th><th>โอกาส</th><th>ประเภท</th><th>สต็อก</th><th></th></tr>${A.prizes.map(p=>{const live=p.weight>0&&(p.kind!=='account'||p.stock>0);return `<tr><td>${esc(p.name)}</td><td><select style="padding:6px" onchange="setPrize('${p.id}',{rarity:this.value})">${['salt','common','rare','epic','legendary'].map(k=>`<option value="${k}" ${p.rarity===k?'selected':''}>${RAR[k].t}</option>`).join('')}</select></td><td><input type="number" min="0" value="${p.weight}" inputmode="numeric" style="width:84px;padding:6px" onchange="setPrize('${p.id}',{weight:Math.max(0,Math.floor(+this.value)||0)})"></td><td>${live&&tw?(p.weight/tw*100).toFixed(1)+'%':'<span class="mut">หมด</span>'}</td><td>${{account:'ไอดี',credit:'เครดิต ฿'+p.credit_amount,nothing:'ไม่ได้อะไร'}[p.kind]}</td><td>${p.kind==='account'?p.stock:'-'}</td><td>${p.kind==='account'?`<button class="btn g sm" onclick="prizeStock('${p.id}')">+สต็อก</button> `:''}<button class="btn r sm" onclick="delPrize('${p.id}')">ลบ</button></td></tr>`}).join('')}</table></div>`:'<div class="empty">ยังไม่มีรางวัล เพิ่มด้านล่าง</div>'}
-      <h2 style="margin-top:22px">เพิ่มรางวัล</h2><label>ชื่อรางวัล</label><input id="gpn" placeholder="เช่น ไอดีแรงค์ Grandmaster / เกลือ ไม่ได้อะไร">
-      <div class="row" style="gap:8px"><div style="flex:1"><label>ระดับ</label><select id="gpr"><option value="salt">🧂 เกลือ</option><option value="common" selected>ธรรมดา</option><option value="rare">หายาก</option><option value="epic">เอพิค</option><option value="legendary">ตำนาน</option></select></div>
-      <div style="flex:1"><label>น้ำหนัก (ยิ่งมากยิ่งออกบ่อย)</label><input id="gpw" type="number" min="1" value="10" inputmode="numeric"></div></div>
-      <p class="mut" style="margin:6px 0 0">ตัวอย่าง: เกลือ 70, ธรรมดา 20, หายาก 8, ตำนาน 2 → โอกาสออก = น้ำหนัก ÷ ผลรวมน้ำหนัก (ไม่ต้องรวมเป็น 100) แก้น้ำหนักทีหลังได้ในตารางด้านบน ใส่ 0 = ไม่ออก</p>
-      <label>ประเภทรางวัล</label><select id="gpk" onchange="kindUi()"><option value="nothing">ไม่ได้อะไร (เกลือล้วน)</option><option value="credit">ได้เครดิตคืน</option><option value="account">ได้ไอดี (มีสต็อก)</option></select>
+      <h2 style="margin-top:18px">รางวัลในกล่อง</h2><p class="mut">โอกาส (%) เห็นเฉพาะแอดมิน ลูกค้าไม่เห็นตัวเลขใดๆ</p>${A.prizes.length?`<div class="tw"><table><tr><th>รางวัล</th><th>น้ำหนัก</th><th>โอกาส</th><th>ประเภท</th><th>สต็อก</th><th>โชว์</th><th></th></tr>${A.prizes.map(p=>`<tr><td><span style="display:flex;gap:8px;align-items:center">${p.image_url?`<img src="${esc(p.image_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover">`:''}${esc(p.name)}</span></td><td><input type="number" min="0" value="${wOf(p)}" inputmode="numeric" style="width:84px;padding:6px" onchange="setWeight('${p.id}',this.value)"></td><td>${live(p)&&tw?(wOf(p)/tw*100).toFixed(1)+'%':'<span class="mut">-</span>'}</td><td>${{account:'ไอดี',credit:'เครดิต ฿'+p.credit_amount,nothing:'ไม่ได้อะไร'}[p.kind]}</td><td>${p.kind==='account'?p.stock:'-'}</td><td><button class="btn g sm" onclick="toggleVis('${p.id}',${p.visible!==false})">${p.visible!==false?'โชว์':'ซ่อน'}</button></td><td><button class="btn g sm" onclick="changePrizeImg('${p.id}')">รูป</button> ${p.kind==='account'?`<button class="btn g sm" onclick="prizeStock('${p.id}')">+สต็อก</button> `:''}<button class="btn r sm" onclick="delPrize('${p.id}')">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีรางวัล เพิ่มด้านล่าง</div>'}
+      <h2 style="margin-top:22px">เพิ่มรางวัล</h2><label>ชื่อรางวัล</label><input id="gpn">
+      <label>น้ำหนัก (ยิ่งมากยิ่งออกบ่อย ใส่ 0 = ไม่ออก)</label><input id="gpw" type="number" min="0" value="10" inputmode="numeric">
+      <label>ประเภทรางวัล</label><select id="gpk" onchange="kindUi()"><option value="nothing">ไม่ได้อะไร (แสดงแค่ชื่อ/รูป)</option><option value="credit">ได้เครดิตคืน</option><option value="account">ได้ไอดี (มีสต็อก)</option></select>
       <div id="gcrw" style="display:none"><label>เครดิตที่ได้ (บาท)</label><input id="gpc" type="number" min="1" inputmode="numeric"></div>
       <div id="gcdw" style="display:none"><label>รหัสไอดี (เว้นบรรทัดว่างคั่นแต่ละไอดี = สต็อก)</label><textarea id="gpd" rows="5" oninput="cntIds(this.value,'gcnt')"></textarea><div id="gcnt" class="mut"></div></div>
       <label>รูปรางวัล (ไม่บังคับ)</label><input id="gpi" type="file" accept="image/*">
-      <button class="btn" id="gpb" style="margin-top:12px" onclick="addPrize()">เพิ่มรางวัล</button>`;
+      <button class="btn" id="gpb" style="margin-top:12px" onclick="addPrize()">เพิ่มรางวัล</button>
+      <h2 style="margin-top:26px">การันตี</h2><p class="mut">ตั้งว่าสุ่มครบกี่ครั้ง (นับแยกแต่ละลูกค้า) การันตีได้รางวัลไหน พอได้รางวัลนั้นแล้วตัวนับเริ่มใหม่ ถ้ารางวัลการันตีหมดสต็อกจะสุ่มปกติแทน</p>
+      ${A.rules.length?A.rules.map(r=>`<div class="conv" style="cursor:default"><div class="row"><span>ทุก <b>${r.every_n}</b> ครั้ง → <b>${esc(A.prizes.find(p=>p.id===r.prize_id)?.name||'(รางวัลถูกลบ)')}</b></span><button class="btn r sm" onclick="delRule('${r.id}')">ลบ</button></div></div>`).join(''):'<div class="mut">ยังไม่มีการันตี</div>'}
+      ${A.prizes.length?`<label>รางวัลที่การันตี</label><select id="grp">${A.prizes.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select><label>สุ่มครบกี่ครั้ง</label><input id="grn" type="number" min="1" inputmode="numeric" placeholder="เช่น 10"><button class="btn" style="margin-top:12px" onclick="addRule()">เพิ่มการันตี</button>`:''}`;
     }
     return `<h2>สร้างกล่องสุ่ม</h2><label>ชื่อกล่อง</label><input id="gn"><label>ราคาต่อการสุ่ม 1 ครั้ง (บาท)</label><input id="gp" type="number" min="1" inputmode="numeric"><label>รายละเอียด</label><textarea id="gd" rows="2"></textarea>
     <label>รูปปกกล่อง (ไม่บังคับ)</label><input id="gf" type="file" accept="image/*"><button class="btn" id="gbb" style="margin-top:12px" onclick="addBox()">สร้างกล่อง</button>
-    <h2 style="margin-top:26px">กล่องทั้งหมด</h2>${A.boxes.length?`<div class="tw"><table><tr><th>กล่อง</th><th>ราคา</th><th>สถานะ</th><th></th></tr>${A.boxes.map(x=>`<tr><td>${esc(x.name)}</td><td>${baht(x.price)}</td><td>${x.active?'เปิด':'ปิด'}</td><td><button class="btn sm" onclick="gBox='${x.id}';render()">จัดการรางวัล</button> <button class="btn g sm" onclick="toggleOdds('${x.id}',${x.show_odds!==false})">โอกาส: ${x.show_odds!==false?'โชว์':'ซ่อน'}</button> <button class="btn g sm" onclick="toggleBox('${x.id}',${x.active})">${x.active?'ปิดกล่อง':'เปิดกล่อง'}</button> <button class="btn r sm" onclick="delBox('${x.id}')">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีกล่อง</div>'}`;
+    <h2 style="margin-top:26px">กล่องทั้งหมด</h2>${A.boxes.length?`<div class="tw"><table><tr><th>กล่อง</th><th>ราคา</th><th>สถานะ</th><th></th></tr>${A.boxes.map(x=>`<tr><td>${esc(x.name)}</td><td>${baht(x.price)}</td><td>${x.active?'เปิด':'ปิด'}</td><td><button class="btn sm" onclick="gBox='${x.id}';render()">จัดการรางวัล</button> <button class="btn g sm" onclick="changeBoxImg('${x.id}')">รูป</button> <button class="btn g sm" onclick="toggleBox('${x.id}',${x.active})">${x.active?'ปิดกล่อง':'เปิดกล่อง'}</button> <button class="btn r sm" onclick="delBox('${x.id}')">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีกล่อง</div>'}`;
   }
   if(t==='inbox'){
     if(chatUser){const u=A.users.find(x=>x.id===chatUser);
@@ -395,50 +402,50 @@ async function sendMsg(isAdm){
   if(r===false)return;cm.value='';await refreshChat();scrollChat();
 }
 async function toggleRnd(id,cur){const r=await act(()=>must(sb.from('products').update({is_random:!cur}).eq('id',id)));if(r!==false)render()}
-const RAR={salt:{t:'เกลือ 🧂',c:'#6b7280'},common:{t:'ธรรมดา',c:'#16a34a'},rare:{t:'หายาก',c:'#2563eb'},epic:{t:'เอพิค',c:'#7c3aed'},legendary:{t:'ตำนาน 🌟',c:'#f59e0b'}};
-const rarChip=r=>`<span class="rc" style="background:${(RAR[r]||RAR.common).c}">${(RAR[r]||RAR.common).t}</span>`;
 function gachaPage(){
-  return `<div class="hero" style="background:radial-gradient(circle at 85% 20%,rgba(255,255,255,.28),transparent 45%),linear-gradient(135deg,#7c3aed,#ec4899)"><h1>🎁 กล่องสุ่ม</h1><p>ลุ้นรับไอดีเทพและรางวัลพิเศษ</p><div class="big">🎲</div></div>
-  ${S.boxes.length?`<div class="grid">${S.boxes.map(b=>`<div class="card" style="cursor:pointer" onclick="openBox('${b.id}')"><div class="pimg" style="background:linear-gradient(135deg,#7c3aed,#ec4899)">${b.image_url?`<img src="${esc(b.image_url)}" alt="" onerror="this.remove()">`:'<span style="position:absolute">🎁</span>'}<span class="tag">${(b.gacha_prizes||[]).length} รางวัล</span></div><div class="pb"><h3>${esc(b.name)}</h3><p>${esc(b.description)}</p><div class="row"><span class="price">${baht(b.price)} <span class="mut">/ครั้ง</span></span><button class="btn sm">ดู / สุ่ม</button></div></div></div>`).join('')}</div>`:'<div class="empty">ยังไม่มีกล่องสุ่ม</div>'}`;
+  return `<div class="hero" style="background:radial-gradient(circle at 85% 20%,rgba(255,255,255,.28),transparent 45%),linear-gradient(135deg,#7c3aed,#ec4899)"><h1>🎁 กล่องสุ่ม</h1><p>ลุ้นรับรางวัลสุดพิเศษ</p><div class="big">🎲</div></div>
+  ${S.boxes.length?`<div class="grid">${S.boxes.map(b=>`<div class="card" style="cursor:pointer" onclick="openBox('${b.id}')"><div class="pimg" style="background:linear-gradient(135deg,#7c3aed,#ec4899)">${b.image_url?`<img src="${esc(b.image_url)}" alt="" onerror="this.remove()">`:'<span style="position:absolute">🎁</span>'}</div><div class="pb"><h3>${esc(b.name)}</h3><p>${esc(b.description)}</p><div class="row"><span class="price">${baht(b.price)} <span class="mut">/ครั้ง</span></span><button class="btn sm">ดู / สุ่ม</button></div></div></div>`).join('')}</div>`:'<div class="empty">ยังไม่มีกล่องสุ่ม</div>'}`;
 }
+let curBox=null,spinN=1,lastCreds='';
 function openBox(id){
-  const b=S.boxes.find(x=>x.id===id);if(!b)return;curBox=b;
-  const ok=(b.gacha_prizes||[]).filter(p=>p.weight>0&&(p.kind!=='account'||p.stock>0)),tw=ok.reduce((s,p)=>s+p.weight,0);
-  const list=ok.slice().sort((x,y)=>x.weight-y.weight);
+  const b=S.boxes.find(x=>x.id===id);if(!b)return;curBox=b;spinN=1;
+  const all=b.gacha_prizes||[],list=all.filter(p=>p.visible!==false&&(p.kind!=='account'||p.stock>0));
+  const rules=(b.gacha_guarantees||[]).slice().sort((x,y)=>x.every_n-y.every_n);
   document.getElementById('layer').innerHTML=`<div class="ov" onclick="if(event.target===this){closeL();render()}"><div class="md" style="max-height:92vh;overflow:auto;max-width:460px" id="boxmd">
+  ${b.image_url?`<img src="${esc(b.image_url)}" style="width:100%;border-radius:14px;margin-bottom:10px" onclick="zoom('${esc(b.image_url)}')">`:''}
   <h3 style="margin:0 0 4px">🎁 ${esc(b.name)}</h3><p class="mut" style="white-space:pre-wrap;margin:0 0 10px">${esc(b.description)}</p>
-  <b>${b.show_odds!==false?'รางวัลและโอกาสที่จะได้':'รางวัลที่มีในกล่อง'}</b>
-  <div style="margin-top:6px">${list.length?list.map(p=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><span style="display:flex;gap:8px;align-items:center">${p.image_url?`<img src="${esc(p.image_url)}" style="width:36px;height:36px;border-radius:8px;object-fit:cover">`:''}<span>${esc(p.name)}<br>${rarChip(p.rarity)}</span></span>${b.show_odds!==false?`<b>${(p.weight/tw*100).toFixed(1)}%</b>`:''}</div>`).join(''):'<div class="mut">ยังไม่มีรางวัลให้สุ่ม</div>'}</div>
-  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" id="spinbtn" onclick="doSpin()" ${list.length?'':'disabled'}>🎲 สุ่มเลย ${baht(b.price)}</button></div></div></div>`;
+  ${list.length?`<b>รางวัลในกล่อง</b><div style="margin-top:6px">${list.map(p=>`<div class="pz">${p.image_url?`<img src="${esc(p.image_url)}" onclick="zoom('${esc(p.image_url)}')">`:''}<span>${esc(p.name)}</span></div>`).join('')}</div>`:''}
+  ${rules.map(r=>{const pz=all.find(p=>p.id===r.prize_id);const k=(S.pity&&S.pity[r.id])||0;return `<div class="gar">⭐ สุ่มครบ ${r.every_n} ครั้ง การันตีได้ ${esc(pz?pz.name:'')}${S.me?` · สะสม ${k}/${r.every_n}`:''}</div>`}).join('')}
+  <div class="row" style="margin-top:14px"><span><b>จำนวนที่สุ่ม</b></span><div class="qty"><button onclick="setSpin(-1)">−</button><b id="sv">1</b><button onclick="setSpin(1)">+</button></div></div>
+  <div class="row" style="gap:6px;margin-top:8px;justify-content:flex-start">${[1,5,10,20].map(n=>`<button class="btn g sm" onclick="setSpinTo(${n})">×${n}</button>`).join('')}</div>
+  <div class="row" style="margin-top:8px"><span class="mut">รวม</span><b id="stot" class="price">${baht(b.price)}</b></div>
+  <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" id="spinbtn" onclick="doSpin()" ${list.length?'':'disabled'}>🎲 สุ่มเลย</button></div></div></div>`;
 }
-let curBox=null;
+function setSpinTo(n){spinN=Math.max(1,Math.min(50,n));document.getElementById('sv').textContent=spinN;document.getElementById('stot').textContent=baht(curBox.price*spinN)}
+function setSpin(d){setSpinTo(spinN+d)}
 async function doSpin(){
-  const u=S.me,b=curBox;
+  const u=S.me,b=curBox,n=spinN,total=b.price*n;
   if(!u){closeL();toast('กรุณาเข้าสู่ระบบก่อนสุ่ม');return go('login')}
-  if(u.balance<b.price){closeL();toast('ยอดเงินไม่พอ กรุณาเติมเงิน');return go('topup')}
+  if(u.balance<total){closeL();toast('ยอดเงินไม่พอ (ต้องใช้ '+baht(total)+') กรุณาเติมเงิน');return go('topup')}
   const md=document.getElementById('boxmd');
   md.innerHTML=`<div class="shake">🎁</div><p style="text-align:center">กำลังสุ่ม...</p>`;
-  const [res]=await Promise.all([act(()=>must(sb.rpc('spin_gacha',{p_box:b.id}))),new Promise(r=>setTimeout(r,1400))]);
+  const [res]=await Promise.all([act(()=>must(sb.rpc('spin_gacha',{p_box:b.id,p_count:n}))),new Promise(r=>setTimeout(r,1300))]);
   if(res===false){closeL();render();return}
-  const R=RAR[res.rarity]||RAR.common,salt=res.rarity==='salt'||res.kind==='nothing';
-  md.innerHTML=`<div class="pop" style="text-align:center"><div style="font-size:64px">${salt?'🧂':res.rarity==='legendary'?'🌟':'🎉'}</div>
-  <div style="margin:6px 0">${rarChip(res.rarity)}</div><h3 style="margin:4px 0">${esc(res.prize_name)}</h3>
-  ${res.image_url?`<img src="${esc(res.image_url)}" style="max-width:100%;max-height:200px;border-radius:12px;margin:8px 0">`:''}
-  ${res.kind==='credit'?`<p>ได้รับเครดิต <b class="price">${baht(res.credits)}</b> เข้ากระเป๋าแล้ว</p>`:''}
-  ${res.kind==='nothing'?`<p class="mut">เสียใจด้วย รอบนี้ได้เกลือ ลองใหม่อีกครั้งนะ</p>`:''}
-  ${res.kind==='account'?`<p class="mut">รหัสไอดีของคุณ (เก็บไว้ที่ "ไอดีของฉัน" ด้วย)</p><div class="cred" id="rescred" style="text-align:left">${esc(res.credentials)}</div><button class="btn g sm" style="margin-top:8px" onclick="navigator.clipboard&&navigator.clipboard.writeText(document.getElementById('rescred').textContent).then(()=>toast('คัดลอกแล้ว'))">คัดลอกรหัส</button>`:''}
-  </div><div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" onclick="again()">🎲 สุ่มอีกครั้ง</button></div>`;
+  const cs=res.reduce((s,x)=>s+(x.credits||0),0);lastCreds=res.filter(x=>x.credentials).map(x=>x.credentials).join('\n\n');
+  md.innerHTML=`<div class="pop"><h3 style="text-align:center;margin:0 0 8px">ผลการสุ่ม${res.length>1?' ×'+res.length:''}</h3>
+  ${res.map(x=>`<div class="res">${x.image_url?`<img src="${esc(x.image_url)}" onclick="zoom('${esc(x.image_url)}')">`:''}<div style="min-width:0;flex:1"><b>${esc(x.prize_name)}</b>${x.guaranteed?' <span class="rc" style="background:#f59e0b">การันตี</span>':''}${x.kind==='credit'?`<div class="mut">เครดิต ${baht(x.credits)}</div>`:''}${x.credentials?`<div class="cred" style="margin-top:6px">${esc(x.credentials)}</div>`:''}</div></div>`).join('')}
+  ${cs?`<p style="margin:10px 0 0">รวมเครดิตที่ได้รับ <b class="price">${baht(cs)}</b></p>`:''}
+  ${lastCreds?`<button class="btn g sm" style="margin-top:10px" onclick="navigator.clipboard&&navigator.clipboard.writeText(lastCreds).then(()=>toast('คัดลอกรหัสทั้งหมดแล้ว'))">คัดลอกรหัสทั้งหมด</button>`:''}
+  </div><div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" onclick="again()">🎲 สุ่มอีก ×${n}</button></div>`;
   await loadMe();nav();
 }
-async function again(){
-  await render();
-  openBox(curBox.id);
-}
+async function again(){const n=spinN;await render();openBox(curBox.id);setSpinTo(n)}
 function spinsPanel(){
   const s=S.A.spins||[];if(!s.length)return '';
-  return `<div class="panel"><h2>🎁 ประวัติกล่องสุ่ม</h2>${s.map(x=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><div class="row"><b>${esc(x.prize_name)}</b>${rarChip(x.rarity)}</div><div class="mut">${esc(x.box_name)} · ${baht(x.price)} · ${dt(x.created_at)}${x.kind==='credit'?` · ได้เครดิต ${baht(x.credits)}`:''}</div>${x.credentials?`<div class="cred">${esc(x.credentials)}</div>`:''}</div>`).join('')}</div>`;
+  return `<div class="panel"><h2>🎁 ประวัติกล่องสุ่ม</h2>${s.map(x=>`<div style="padding:10px 0;border-bottom:1px solid var(--line)"><b>${esc(x.prize_name)}</b><div class="mut">${esc(x.box_name)} · ${baht(x.price)} · ${dt(x.created_at)}${x.kind==='credit'?` · ได้เครดิต ${baht(x.credits)}`:''}</div>${x.credentials?`<div class="cred">${esc(x.credentials)}</div>`:''}</div>`).join('')}</div>`;
 }
 function kindUi(){const k=document.getElementById('gpk').value;document.getElementById('gcrw').style.display=k==='credit'?'block':'none';document.getElementById('gcdw').style.display=k==='account'?'block':'none'}
+function pickImg(cb){const i=document.createElement('input');i.type='file';i.accept='image/*';i.onchange=()=>{if(i.files[0])cb(i.files[0])};i.click()}
 async function addBox(){
   const n=gn.value.trim(),p=Math.floor(+gp.value);if(!n||p<1)return toast('กรอกชื่อและราคา');
   document.getElementById('gbb').disabled=true;let img={url:'',path:''};
@@ -446,9 +453,11 @@ async function addBox(){
   const r=await act(()=>must(sb.from('gacha_boxes').insert({name:n,price:p,description:gd.value.trim(),image_url:img.url,image_path:img.path})));
   if(r===false){document.getElementById('gbb').disabled=false;return}toast('สร้างกล่องแล้ว');render();
 }
-async function setPrize(id,patch){const r=await act(()=>must(sb.from('gacha_prizes').update(patch).eq('id',id)));if(r!==false){toast('บันทึกแล้ว');render()}}
-async function toggleOdds(id,cur){const r=await act(()=>must(sb.from('gacha_boxes').update({show_odds:!cur}).eq('id',id)));if(r!==false){toast(cur?'ซ่อนโอกาสจากลูกค้าแล้ว':'แสดงโอกาสให้ลูกค้าเห็นแล้ว');render()}}
+function changeBoxImg(id){const b=S.A.boxes.find(x=>x.id===id);pickImg(async f=>{toast('กำลังอัปโหลด...');try{const u=await uploadImg(f,'gacha');await must(sb.from('gacha_boxes').update({image_url:u.url,image_path:u.path}).eq('id',id));if(b.image_path)await sb.storage.from('product-images').remove([b.image_path]);toast('เปลี่ยนรูปแล้ว');render()}catch(e){toast(em(e))}})}
+function changePrizeImg(id){const p=S.A.prizes.find(x=>x.id===id);pickImg(async f=>{toast('กำลังอัปโหลด...');try{const u=await uploadImg(f,'gacha');await must(sb.from('gacha_prizes').update({image_url:u.url,image_path:u.path}).eq('id',id));if(p.image_path)await sb.storage.from('product-images').remove([p.image_path]);toast('เปลี่ยนรูปแล้ว');render()}catch(e){toast(em(e))}})}
 async function toggleBox(id,cur){const r=await act(()=>must(sb.from('gacha_boxes').update({active:!cur}).eq('id',id)));if(r!==false)render()}
+async function toggleVis(id,cur){const r=await act(()=>must(sb.from('gacha_prizes').update({visible:!cur}).eq('id',id)));if(r!==false)render()}
+async function setWeight(id,v){const w=Math.max(0,Math.floor(+v)||0);const r=await act(()=>must(sb.from('gacha_prize_weights').upsert({prize_id:id,weight:w})));if(r!==false){toast('บันทึกแล้ว');render()}}
 function delBox(id){
   const b=S.A.boxes.find(x=>x.id===id);
   modal(`ลบกล่อง "${esc(b.name)}" พร้อมรางวัลทั้งหมด?`,async()=>{
@@ -456,12 +465,12 @@ function delBox(id){
     if(d!==false&&b.image_path)await sb.storage.from('product-images').remove([b.image_path]);render()});
 }
 async function addPrize(){
-  const name=gpn.value.trim(),w=Math.floor(+gpw.value),k=gpk.value,cr=Math.floor(+gpc.value)||0,cd=gpd.value;
-  if(!name||w<1)return toast('กรอกชื่อรางวัลและน้ำหนัก');
+  const name=gpn.value.trim(),w=Math.max(0,Math.floor(+gpw.value)||0),k=gpk.value,cr=Math.floor(+gpc.value)||0,cd=gpd.value;
+  if(!name)return toast('กรอกชื่อรางวัล');
   if(k==='credit'&&cr<1)return toast('กรอกจำนวนเครดิต');
   if(k==='account'&&!cd.trim())return toast('กรอกรหัสไอดี');
   document.getElementById('gpb').disabled=true;
-  const id=await act(()=>must(sb.rpc('admin_add_prize',{p_box:gBox,p_name:name,p_rarity:gpr.value,p_weight:w,p_kind:k,p_credit:cr,p_cred:cd})));
+  const id=await act(()=>must(sb.rpc('admin_add_prize',{p_box:gBox,p_name:name,p_weight:w,p_kind:k,p_credit:cr,p_cred:cd})));
   if(id===false){document.getElementById('gpb').disabled=false;return}
   if(gpi.files[0]){try{const u=await uploadImg(gpi.files[0],'gacha');await must(sb.from('gacha_prizes').update({image_url:u.url,image_path:u.path}).eq('id',id))}catch(e){toast('อัปโหลดรูปไม่สำเร็จ: '+em(e))}}
   toast('เพิ่มรางวัลแล้ว');render();
@@ -479,6 +488,12 @@ function delPrize(id){
     const d=await act(()=>must(sb.from('gacha_prizes').delete().eq('id',id)));
     if(d!==false&&p.image_path)await sb.storage.from('product-images').remove([p.image_path]);render()});
 }
+async function addRule(){
+  const n=Math.floor(+grn.value);if(n<1)return toast('กรอกจำนวนครั้ง');
+  const r=await act(()=>must(sb.from('gacha_guarantees').insert({box_id:gBox,prize_id:grp.value,every_n:n})));
+  if(r!==false){toast('เพิ่มการันตีแล้ว');render()}
+}
+function delRule(id){modal('ลบการันตีนี้?',async()=>{await act(()=>must(sb.from('gacha_guarantees').delete().eq('id',id)));render()})}
 async function addCode(){
   let c=kc.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'');const a=Math.floor(+ka.value),m=Math.floor(+km.value)||1;
   if(!c)c='FF'+Math.random().toString(36).slice(2,8).toUpperCase();
