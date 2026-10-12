@@ -5,7 +5,7 @@ const sb=window.supabase.createClient(C.SUPABASE_URL,C.SUPABASE_ANON_KEY);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const baht=n=>'฿'+Number(n).toLocaleString('th-TH');
 const dt=t=>new Date(t).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'});
-const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ',BADQTY:'จำนวนไม่ถูกต้อง',BADMSG:'ข้อความต้องมี 1-1000 ตัวอักษร',NOBOX:'ไม่พบกล่องสุ่มนี้',NOPRIZE:'กล่องนี้ยังไม่มีรางวัลให้สุ่ม',TOOFAST:'ส่งข้อความเร็วเกินไป กรุณารอสักครู่',NOSTOCK:'ต้องมีรหัสไอดีอย่างน้อย 1 ไอดี','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
+const ERR={LOGIN:'กรุณาเข้าสู่ระบบ',SOLD:'สินค้านี้ถูกขายแล้ว',INSUFFICIENT:'ยอดเงินไม่พอ กรุณาเติมเงิน',NOCODE:'ไม่พบโค้ดนี้',EXHAUSTED:'โค้ดนี้ถูกใช้ครบแล้ว',USED:'คุณใช้โค้ดนี้ไปแล้ว',BADAMOUNT:'จำนวนเงินไม่ถูกต้อง',NOREF:'กรุณากรอกเลขอ้างอิง',TOOMANY:'มีรายการรอตรวจสอบหลายรายการแล้ว กรุณารอแอดมินตรวจสอบก่อน',FORBIDDEN:'ไม่มีสิทธิ์',NOTFOUND:'ไม่พบรายการ',BADQTY:'จำนวนไม่ถูกต้อง',BADMSG:'ข้อความต้องมี 1-1000 ตัวอักษร',NOBOX:'ไม่พบกล่องสุ่มนี้',BANNED:'บัญชีนี้ถูกระงับการใช้งาน',banned:'บัญชีนี้ถูกระงับการใช้งาน',NOBALANCE:'สมาชิกคนนี้ไม่มียอดเงินให้หัก',NOPRIZE:'กล่องนี้ยังไม่มีรางวัลให้สุ่ม',TOOFAST:'ส่งข้อความเร็วเกินไป กรุณารอสักครู่',NOSTOCK:'ต้องมีรหัสไอดีอย่างน้อย 1 ไอดี','violates check constraint':'ยอดเงินจะติดลบไม่ได้','already registered':'ชื่อผู้ใช้นี้ถูกใช้แล้ว','Invalid login':'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','duplicate key':'มีข้อมูลนี้อยู่แล้ว'};
 function em(e){const m=(e&&e.message)||String(e);for(const k in ERR)if(m.includes(k))return ERR[k];return 'เกิดข้อผิดพลาด: '+m}
 const emailOf=u=>u.toLowerCase()+'@ffshop.app';
 
@@ -31,6 +31,7 @@ async function loadMe(){
   if(!session){S.me=null;return}
   const {data}=await sb.from('profiles').select('*').eq('id',session.user.id).maybeSingle();
   S.me=data||null;
+  if(S.me&&S.me.banned){await sb.auth.signOut();S.me=null;toast('บัญชีนี้ถูกระงับการใช้งาน')}
 }
 async function loadUnread(){
   if(!S.me){S.unread=0;return}
@@ -283,7 +284,7 @@ function adminBody(){
     <button class="btn" style="margin-top:12px" onclick="addCode()">สร้างโค้ด</button>
     <h2 style="margin-top:26px">โค้ดทั้งหมด</h2>${A.codes.length?`<div class="tw"><table><tr><th>โค้ด</th><th>จำนวน</th><th>ใช้แล้ว</th><th></th></tr>${A.codes.map(k=>`<tr><td><b>${esc(k.code)}</b></td><td>${baht(k.amount)}</td><td>${k.used_count}/${k.max_uses}</td><td><button class="btn r sm" onclick="delCode('${k.id}')">ลบ</button></td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีโค้ด</div>'}`;
   if(t==='orders')return `<h2>ออเดอร์</h2>${A.orders.length?`<div class="tw"><table><tr><th>เวลา</th><th>ผู้ซื้อ</th><th>สินค้า</th><th>ราคา</th></tr>${A.orders.map(o=>`<tr><td>${dt(o.created_at)}</td><td>${esc(A.users.find(u=>u.id===o.user_id)?.username||'-')}</td><td>${esc(o.title)}</td><td>${baht(o.price)}</td></tr>`).join('')}</table></div>`:'<div class="empty">ยังไม่มีออเดอร์</div>'}`;
-  if(t==='users')return `<h2>สมาชิก</h2><div class="tw"><table><tr><th>ชื่อผู้ใช้</th><th>สิทธิ์</th><th>ยอดเงิน</th><th>สมัครเมื่อ</th><th></th></tr>${A.users.map(u=>`<tr><td>${esc(u.username)}</td><td>${u.role}</td><td>${baht(u.balance)}</td><td>${dt(u.created_at)}</td><td><button class="btn sm" onclick="adj('${u.id}','${esc(u.username)}',${u.balance})">ปรับยอดเงิน</button></td></tr>`).join('')}</table></div>`;
+  if(t==='users')return `<h2>สมาชิก</h2><div class="tw"><table><tr><th>ชื่อผู้ใช้</th><th>สิทธิ์</th><th>ยอดเงิน</th><th>สมัครเมื่อ</th><th></th></tr>${A.users.map(u=>`<tr><td>${u.banned?'🚫 ':''}${esc(u.username)}</td><td>${u.role}</td><td>${baht(u.balance)}</td><td>${dt(u.created_at)}</td><td><button class="btn s sm" onclick="adj('${u.id}','${esc(u.username)}',${u.balance},1)">+ เพิ่มเงิน</button> <button class="btn r sm" onclick="adj('${u.id}','${esc(u.username)}',${u.balance},-1)">− หักเงิน</button>${u.role!=='admin'?` <button class="btn ${u.banned?'':'g'} sm" onclick="banUser('${u.id}','${esc(u.username)}',${!!u.banned})">${u.banned?'ปลดแบน':'เตะ/แบน'}</button>`:''}</td></tr>`).join('')}</table></div>`;
 }
 function tAct(id,ok){
   const x=S.A.topups.find(t=>t.id===id);
@@ -416,13 +417,16 @@ function openBox(id){
   <h3 style="margin:0 0 4px">🎁 ${esc(b.name)}</h3><p class="mut" style="white-space:pre-wrap;margin:0 0 10px">${esc(b.description)}</p>
   ${list.length?`<b>รางวัลในกล่อง</b><div style="margin-top:6px">${list.map(p=>`<div class="pz">${p.image_url?`<img src="${esc(p.image_url)}" onclick="zoom('${esc(p.image_url)}')">`:''}<span>${esc(p.name)}</span></div>`).join('')}</div>`:''}
   ${rules.map(r=>{const pz=all.find(p=>p.id===r.prize_id);const k=(S.pity&&S.pity[r.id])||0;return `<div class="gar">⭐ สุ่มครบ ${r.every_n} ครั้ง การันตีได้ ${esc(pz?pz.name:'')}${S.me?` · สะสม ${k}/${r.every_n}`:''}</div>`}).join('')}
-  <div class="row" style="margin-top:14px"><span><b>จำนวนที่สุ่ม</b></span><div class="qty"><button onclick="setSpin(-1)">−</button><b id="sv">1</b><button onclick="setSpin(1)">+</button></div></div>
-  <div class="row" style="gap:6px;margin-top:8px;justify-content:flex-start">${[1,5,10,20].map(n=>`<button class="btn g sm" onclick="setSpinTo(${n})">×${n}</button>`).join('')}</div>
+  <div class="row" style="margin-top:14px"><span><b>จำนวนที่สุ่ม</b></span><div class="qty"><button onclick="setSpin(-1)">−</button><input id="sn" type="number" min="1" max="1000" value="1" inputmode="numeric" oninput="spinInput(this.value)"><button onclick="setSpin(1)">+</button></div></div>
+  <div class="row" style="gap:6px;margin-top:8px;justify-content:flex-start;flex-wrap:wrap">${[1,5,10,50,100,500].map(n=>`<button class="btn g sm" onclick="setSpinTo(${n})">×${n}</button>`).join('')}<button class="btn g sm" onclick="spinMax()">สูงสุด</button></div>
+  ${S.me?`<div class="mut" style="margin-top:6px">ยอดเงินของคุณ ${baht(S.me.balance)} · สุ่มได้สูงสุด ${Math.min(1000,Math.floor(S.me.balance/b.price))} ครั้ง</div>`:''}
   <div class="row" style="margin-top:8px"><span class="mut">รวม</span><b id="stot" class="price">${baht(b.price)}</b></div>
   <div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" id="spinbtn" onclick="doSpin()" ${list.length?'':'disabled'}>🎲 สุ่มเลย</button></div></div></div>`;
 }
-function setSpinTo(n){spinN=Math.max(1,Math.min(50,n));document.getElementById('sv').textContent=spinN;document.getElementById('stot').textContent=baht(curBox.price*spinN)}
+function setSpinTo(n){spinN=Math.max(1,Math.min(1000,Math.floor(n)||1));const i=document.getElementById('sn');if(i)i.value=spinN;document.getElementById('stot').textContent=baht(curBox.price*spinN)}
+function spinInput(v){spinN=Math.max(1,Math.min(1000,Math.floor(+v)||1));document.getElementById('stot').textContent=baht(curBox.price*spinN)}
 function setSpin(d){setSpinTo(spinN+d)}
+function spinMax(){const m=S.me?Math.floor(S.me.balance/curBox.price):1;setSpinTo(Math.max(1,Math.min(1000,m)))}
 async function doSpin(){
   const u=S.me,b=curBox,n=spinN,total=b.price*n;
   if(!u){closeL();toast('กรุณาเข้าสู่ระบบก่อนสุ่ม');return go('login')}
@@ -432,8 +436,16 @@ async function doSpin(){
   const [res]=await Promise.all([act(()=>must(sb.rpc('spin_gacha',{p_box:b.id,p_count:n}))),new Promise(r=>setTimeout(r,1300))]);
   if(res===false){closeL();render();return}
   const cs=res.reduce((s,x)=>s+(x.credits||0),0);lastCreds=res.filter(x=>x.credentials).map(x=>x.credentials).join('\n\n');
-  md.innerHTML=`<div class="pop"><h3 style="text-align:center;margin:0 0 8px">ผลการสุ่ม${res.length>1?' ×'+res.length:''}</h3>
-  ${res.map(x=>`<div class="res">${x.image_url?`<img src="${esc(x.image_url)}" onclick="zoom('${esc(x.image_url)}')">`:''}<div style="min-width:0;flex:1"><b>${esc(x.prize_name)}</b>${x.guaranteed?' <span class="rc" style="background:#f59e0b">การันตี</span>':''}${x.kind==='credit'?`<div class="mut">เครดิต ${baht(x.credits)}</div>`:''}${x.credentials?`<div class="cred" style="margin-top:6px">${esc(x.credentials)}</div>`:''}</div></div>`).join('')}
+  if(res.length<n)toast('ของหมดกลางทาง สุ่มได้ '+res.length+' ครั้ง คิดเงินเฉพาะที่สุ่มได้');
+  let body;
+  if(res.length<=20){
+    body=res.map(x=>`<div class="res">${x.image_url?`<img src="${esc(x.image_url)}" onclick="zoom('${esc(x.image_url)}')">`:''}<div style="min-width:0;flex:1"><b>${esc(x.prize_name)}</b>${x.guaranteed?' <span class="rc" style="background:#f59e0b">การันตี</span>':''}${x.kind==='credit'?`<div class="mut">เครดิต ${baht(x.credits)}</div>`:''}${x.credentials?`<div class="cred" style="margin-top:6px">${esc(x.credentials)}</div>`:''}</div></div>`).join('');
+  }else{
+    const g={};res.forEach(x=>{const k=x.prize_name+'|'+x.kind;const o=g[k]||(g[k]={x,n:0,c:0,gt:0});o.n++;o.c+=x.credits||0;if(x.guaranteed)o.gt++});
+    body=Object.values(g).sort((p,q)=>q.n-p.n).map(o=>`<div class="res">${o.x.image_url?`<img src="${esc(o.x.image_url)}" onclick="zoom('${esc(o.x.image_url)}')">`:''}<div style="min-width:0;flex:1"><b>${esc(o.x.prize_name)}</b> <span class="rc" style="background:#7c3aed">×${o.n}</span>${o.gt?` <span class="rc" style="background:#f59e0b">การันตี ${o.gt}</span>`:''}${o.c?`<div class="mut">เครดิตรวม ${baht(o.c)}</div>`:''}</div></div>`).join('')
+      +(lastCreds?`<div class="mut" style="margin-top:8px">รหัสไอดีที่ได้ทั้งหมด</div><div class="cred" style="max-height:220px;overflow:auto">${esc(lastCreds)}</div>`:'');
+  }
+  md.innerHTML=`<div class="pop"><h3 style="text-align:center;margin:0 0 8px">ผลการสุ่ม${res.length>1?' ×'+res.length:''}</h3>${body}
   ${cs?`<p style="margin:10px 0 0">รวมเครดิตที่ได้รับ <b class="price">${baht(cs)}</b></p>`:''}
   ${lastCreds?`<button class="btn g sm" style="margin-top:10px" onclick="navigator.clipboard&&navigator.clipboard.writeText(lastCreds).then(()=>toast('คัดลอกรหัสทั้งหมดแล้ว'))">คัดลอกรหัสทั้งหมด</button>`:''}
   </div><div class="row" style="margin-top:16px"><button class="btn g" onclick="closeL();render()">ปิด</button><button class="btn" onclick="again()">🎲 สุ่มอีก ×${n}</button></div>`;
@@ -501,12 +513,19 @@ async function addCode(){
   const r=await act(()=>must(sb.from('codes').insert({code:c,amount:a,max_uses:m})));if(r===false)return;toast('สร้างโค้ด '+c+' แล้ว');render();
 }
 function delCode(id){modal('ลบโค้ดนี้?',async()=>{await act(()=>must(sb.from('codes').delete().eq('id',id)));render()})}
-function adj(id,name,bal){
-  modal(`<h3 style="margin:0 0 6px">ปรับยอดเงิน ${esc(name)}</h3><div class="mut">ยอดปัจจุบัน ${baht(bal)}</div><label>จำนวน (ใส่ - เพื่อหักเงิน)</label><input id="aa" type="number" inputmode="numeric" placeholder="เช่น 100 หรือ -50">`,async()=>{
-    const v=Math.trunc(+aa.value);if(!v)return false;
-    const r=await act(()=>must(sb.rpc('admin_adjust_balance',{p_user:id,p_amount:v})));
-    if(r===false)return false;toast('ปรับยอดแล้ว');render();
-  },'บันทึก');
+function adj(id,name,bal,sign){
+  const add=sign>0;
+  modal(`<h3 style="margin:0 0 6px">${add?'เพิ่มเงิน':'หักเงิน'} ${esc(name)}</h3><div class="mut">ยอดปัจจุบัน ${baht(bal)}</div><label>จำนวนเงิน (บาท) ใส่เท่าไรก็ได้</label><input id="aa" type="number" min="1" inputmode="numeric" placeholder="เช่น 500">${add?'':'<div class="mut" style="margin-top:6px">ถ้าใส่มากกว่ายอดที่มี ระบบจะหักให้เหลือ 0</div>'}`,async()=>{
+    const v=Math.floor(Math.abs(+aa.value));if(!v)return false;
+    const r=await act(()=>must(sb.rpc('admin_adjust_balance',{p_user:id,p_amount:sign*v})));
+    if(r===false)return false;toast((add?'เพิ่มเงินแล้ว ':'หักเงินแล้ว ')+baht(Math.abs(r)));render();
+  },add?'เพิ่มเงิน':'หักเงิน');
+}
+function banUser(id,name,cur){
+  modal(cur?`ปลดแบน <b>${esc(name)}</b>?`:`เตะ/แบน <b>${esc(name)}</b>?<div class="mut" style="margin-top:6px">สมาชิกจะล็อกอิน ซื้อ สุ่ม เติมเงิน และแชทไม่ได้ จนกว่าจะปลดแบน</div>`,async()=>{
+    const r=await act(()=>must(sb.rpc('admin_set_ban',{p_user:id,p_ban:!cur})));
+    if(r===false)return false;toast(cur?'ปลดแบนแล้ว':'เตะสมาชิกแล้ว');render();
+  },cur?'ปลดแบน':'เตะ/แบน');
 }
 sb.auth.onAuthStateChange(()=>{});
 render();
