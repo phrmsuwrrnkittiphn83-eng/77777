@@ -204,6 +204,7 @@ async function loadAdmin(){
     if(chatUser){await sb.rpc('mark_messages_read',{p_user:chatUser});A.msgs=await must(sb.from('messages').select('*').eq('user_id',chatUser).order('created_at').limit(300));await loadUnread()}
     else A.msgs=await must(sb.from('messages').select('*').order('created_at',{ascending:false}).limit(1000));
   }
+  else if(t==='music')A.music=await must(sb.from('site_music').select('*').order('created_at'));
   else if(t==='reviews')A.reviews=await must(sb.from('site_images').select('*').order('created_at',{ascending:false}));
   else if(t==='codes')A.codes=await must(sb.from('codes').select('*').order('created_at',{ascending:false}));
   else if(t==='orders'){[A.orders,A.users]=await Promise.all([must(sb.from('orders').select('*').order('created_at',{ascending:false}).limit(300)),must(sb.from('profiles').select('id,username'))])}
@@ -212,7 +213,7 @@ async function loadAdmin(){
   S.A=A;
 }
 function admin(){
-  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['reviews','รีวิว'],['gacha','กล่องสุ่ม'],['inbox','ข้อความ'+(S.unread?` (${S.unread})`:'')],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
+  const tabs=[['dash','ภาพรวม'],['topups','การเติมเงิน'],['cats','หมวดหมู่'],['prods','สินค้า'],['reviews','รีวิว'],['music','เพลง'],['gacha','กล่องสุ่ม'],['inbox','ข้อความ'+(S.unread?` (${S.unread})`:'')],['codes','โค้ดเงิน'],['orders','ออเดอร์'],['users','สมาชิก']];
   const pend=S.A.pend.length;
   return `<div class="tabs">${tabs.map(([k,t])=>`<button class="${adminTab===k?'on':''}" onclick="adminTab='${k}';chatUser=null;gBox=null;render()">${t}${k==='topups'&&pend?` (${pend})`:''}</button>`).join('')}</div><div class="panel" style="margin-top:0;border-top-left-radius:0">${adminBody()}</div>`;
 }
@@ -278,6 +279,15 @@ function adminBody(){
     const ids=Object.keys(g);
     return `<h2>ข้อความจากลูกค้า</h2>${ids.length?ids.map(id=>`<div class="conv" onclick="chatUser='${id}';render()"><div class="row"><b>${esc(A.users.find(u=>u.id===id)?.username||'-')}</b><span class="mut">${dt(g[id].last.created_at)}</span></div><div class="row"><span class="mut" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:75%">${g[id].last.sender_role==='admin'?'คุณ: ':''}${esc(g[id].last.body)}</span>${g[id].unread?`<span class="st rejected">${g[id].unread} ใหม่</span>`:''}</div></div>`).join(''):'<div class="empty">ยังไม่มีข้อความ</div>'}`;
   }
+  if(t==='music')return `<h2>🎵 เพลงพื้นหลังเว็บ</h2><p class="mut">เพิ่มได้ 2 แบบ: อัปโหลดไฟล์ หรือใส่ลิงก์ (ลิงก์ YouTube หรือลิงก์ตรงของไฟล์เสียง/วิดีโอ .mp3 .mp4 ฯลฯ) เล่นต่อเนื่องวนซ้ำ ความยาวเท่าไรก็ได้ ลูกค้ามีปุ่ม 🎵 มุมซ้ายล่างไว้เปิด/ปิด</p>
+    <h3 style="margin:14px 0 0">เพิ่มด้วยลิงก์ (ไม่จำกัดความยาว/ขนาด)</h3>
+    <label>ลิงก์ YouTube หรือลิงก์ไฟล์</label><input id="mlink" placeholder="https://www.youtube.com/watch?v=... หรือ https://.../song.mp3">
+    <label>ชื่อ (ไม่บังคับ)</label><input id="mtitle">
+    <button class="btn" style="margin-top:12px" onclick="addMusicLink()">เพิ่มลิงก์</button>
+    <h3 style="margin:22px 0 0">หรืออัปโหลดไฟล์เสียง/วิดีโอ</h3>
+    <label>เลือกไฟล์ (mp3, mp4 ฯลฯ ไฟล์ละไม่เกิน 45 MB ถ้าใหญ่กว่านี้ให้ใช้ลิงก์)</label><input id="mfile" type="file" accept="audio/*,video/*" multiple>
+    <button class="btn" id="mbtnup" style="margin-top:12px" onclick="addMusic()">อัปโหลด</button>
+    <h2 style="margin-top:22px">รายการทั้งหมด</h2>${A.music.length?A.music.map(m=>{const y=ytId(m.url);return `<div class="conv" style="cursor:default"><div class="row"><b style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%">${esc(m.title||m.url)}</b><span><button class="btn g sm" onclick="toggleMusic('${m.id}',${m.active})">${m.active?'เปิดใช้':'ปิดอยู่'}</button> <button class="btn r sm" onclick="delMusic('${m.id}')">ลบ</button></span></div>${y?`<div class="mut" style="margin-top:6px">▶ YouTube · ${esc(m.url)}</div>`:(isVid(m.url)?`<video controls preload="none" playsinline src="${esc(m.url)}" style="width:100%;margin-top:8px;border-radius:10px"></video>`:`<audio controls preload="none" src="${esc(m.url)}" style="width:100%;margin-top:8px"></audio>`)}</div>`}).join(''):'<div class="empty">ยังไม่มีเพลง</div>'}`;
   if(t==='reviews')return `<h2>ภาพรีวิวจากลูกค้า</h2><p class="mut">รูปที่อัปโหลดตรงนี้จะแสดงใต้รายการสินค้าในหน้าแรก</p>
     <label>เลือกรูป (หลายรูปได้)</label><input id="rf" type="file" accept="image/*" multiple><label>คำอธิบาย (ไม่บังคับ)</label><input id="rcap">
     <button class="btn" id="rbtn" style="margin-top:12px" onclick="addReviews()">อัปโหลดรูปรีวิว</button>
@@ -537,6 +547,95 @@ async function addRule(){
   if(r!==false){toast('เพิ่มการันตีแล้ว');render()}
 }
 function delRule(id){modal('ลบการันตีนี้?',async()=>{await act(()=>must(sb.from('gacha_guarantees').delete().eq('id',id)));render()})}
+const M={list:[],i:0,v:null,yt:null,box:null,btn:null,mode:'',started:false};
+const mpref=()=>{try{return localStorage.getItem('ffm')}catch(e){return null}};
+const msetp=v=>{try{localStorage.setItem('ffm',v)}catch(e){}};
+const ytId=u=>{const m=String(u).match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);return m?m[1]:null};
+const isVid=u=>/\.(mp4|webm|mov|m4v|ogv)(\?|#|$)/i.test(u);
+function mkBox(){
+  if(M.box)return;
+  M.box=document.createElement('div');M.box.className='mbox';M.box.style.display='none';
+  M.box.innerHTML='<video id="mv" playsinline></video><div id="ytw" style="display:none"><div id="ytp"></div></div>';
+  document.body.appendChild(M.box);
+  M.v=M.box.querySelector('video');M.v.volume=.4;M.v.addEventListener('ended',mnext);M.v.addEventListener('play',mui);M.v.addEventListener('pause',mui);M.v.addEventListener('error',()=>{if(M.list.length>1)setTimeout(mnext,500)});
+}
+function mplaying(){try{if(M.mode==='yt')return !!(M.yt&&M.yt.getPlayerState&&M.yt.getPlayerState()===1);return !!(M.v&&!M.v.paused)}catch(e){return false}}
+function mui(){
+  if(M.btn)M.btn.textContent=mplaying()?'🎵':'🔇';
+  if(M.box){const vis=mplaying()&&(M.mode==='yt'||M.mode==='vid');M.box.style.display=vis?'block':'none'}
+}
+function ytLoad(){return new Promise(res=>{if(window.YT&&window.YT.Player)return res();const s=document.createElement('script');s.src='https://www.youtube.com/iframe_api';document.head.appendChild(s);window.onYouTubeIframeAPIReady=res;setTimeout(res,10000)})}
+async function mplay(i){
+  const t=M.list[i];if(!t)return;M.i=i;mkBox();
+  try{M.v.pause();if(M.yt&&M.yt.pauseVideo)M.yt.pauseVideo()}catch(e){}
+  const id=ytId(t.url);
+  if(id){
+    M.mode='yt';M.v.style.display='none';document.getElementById('ytw').style.display='block';M.box.style.display='block';
+    await ytLoad();if(!(window.YT&&window.YT.Player)){M.mode='';return}
+    if(!M.yt){
+      M.yt=new YT.Player('ytp',{width:200,height:112,videoId:id,playerVars:{playsinline:1,rel:0,controls:1},events:{onReady:e=>{e.target.setVolume(40);e.target.playVideo()},onStateChange:e=>{if(e.data===0)mnext();mui()}}});
+    }else{M.yt.loadVideoById(id)}
+  }else{
+    M.mode=isVid(t.url)?'vid':'aud';document.getElementById('ytw').style.display='none';
+    M.v.style.display=M.mode==='vid'?'block':'none';M.v.loop=M.list.length===1;M.v.src=t.url;
+    M.v.play().then(mui).catch(()=>{});
+  }
+  mui();
+}
+function mtoggle(){
+  if(!M.list.length)return;
+  if(!M.mode){msetp('on');mplay(M.i);return}
+  if(mplaying()){msetp('off');try{if(M.mode==='yt')M.yt.pauseVideo();else M.v.pause()}catch(e){}mui()}
+  else{msetp('on');try{if(M.mode==='yt'){M.box.style.display='block';M.yt.playVideo()}else M.v.play().then(mui)}catch(e){}}
+}
+function mnext(){if(!M.list.length)return;mplay((M.i+1)%M.list.length)}
+function armMusic(){const go=e=>{if(e.target.closest&&e.target.closest('.mbtn'))return;document.removeEventListener('pointerdown',go,true);if(mpref()!=='off'&&!mplaying())mplay(M.i)};document.addEventListener('pointerdown',go,true)}
+async function loadMusic(){
+  try{
+    const rows=await must(sb.from('site_music').select('*').eq('active',true).order('created_at'));
+    const same=JSON.stringify(rows.map(r=>r.id))===JSON.stringify(M.list.map(r=>r.id));
+    M.list=rows;
+    if(!rows.length){try{if(M.v)M.v.pause();if(M.yt&&M.yt.pauseVideo)M.yt.pauseVideo()}catch(e){}M.mode='';if(M.btn){M.btn.remove();M.btn=null}mui();return}
+    if(!M.btn){M.btn=document.createElement('button');M.btn.className='mbtn';M.btn.title='เปิด/ปิดเพลง';M.btn.onclick=mtoggle;document.body.appendChild(M.btn)}
+    if(same&&M.mode){mui();return}
+    const was=mplaying();M.i=0;
+    mui();
+    if(was)mplay(0);else if(mpref()!=='off')armMusic();
+  }catch(e){}
+}
+async function addMusicLink(){
+  const u=mlink.value.trim(),t=mtitle.value.trim();
+  if(!/^https?:\/\//i.test(u))return toast('ใส่ลิงก์ที่ขึ้นต้นด้วย http:// หรือ https://');
+  if(/spotify\.com/i.test(u))return toast('ลิงก์ Spotify เล่นในเว็บไม่ได้ ใช้ YouTube หรือลิงก์ไฟล์แทน');
+  const r=await act(()=>must(sb.from('site_music').insert({title:t||(ytId(u)?'YouTube':u.replace(/^https?:\/\//,'').slice(0,60)),url:u,path:''})));
+  if(r===false)return;toast('เพิ่มลิงก์แล้ว');loadMusic();render();
+}
+async function addMusic(){
+  const files=[...document.getElementById('mfile').files];if(!files.length)return toast('เลือกไฟล์เพลงก่อน');
+  document.getElementById('mbtnup').disabled=true;let i=0;
+  for(const f of files){
+    if(f.size>45*1024*1024){toast(f.name+' ใหญ่เกิน 45 MB');continue}
+    toast(`กำลังอัปโหลด ${i+1}/${files.length}...`);
+    try{
+      const ext=(f.name.split('.').pop()||'mp3').toLowerCase().replace(/[^a-z0-9]/g,'')||'mp3';
+      const path='music/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.'+ext;
+      const {error}=await sb.storage.from('product-images').upload(path,f,{contentType:f.type||(/\.(mp4|m4v)$/i.test(f.name)?'video/mp4':'audio/mpeg'),cacheControl:'31536000'});
+      if(error)throw error;
+      const url=sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+      await must(sb.from('site_music').insert({title:f.name.replace(/\.[^.]+$/,''),url,path}));i++;
+    }catch(e){toast('อัปโหลดไม่สำเร็จ: '+em(e))}
+  }
+  toast('อัปโหลดเพลงแล้ว');loadMusic();render();
+}
+async function toggleMusic(id,cur){const r=await act(()=>must(sb.from('site_music').update({active:!cur}).eq('id',id)));if(r!==false){loadMusic();render()}}
+function delMusic(id){
+  const m=S.A.music.find(x=>x.id===id);
+  modal(`ลบเพลง "${esc(m.title)}"?`,async()=>{
+    const d=await act(()=>must(sb.from('site_music').delete().eq('id',id)));
+    if(d!==false&&m.path)await sb.storage.from('product-images').remove([m.path]);
+    loadMusic();render();
+  });
+}
 async function addCode(){
   let c=kc.value.trim().toUpperCase().replace(/[^A-Z0-9_-]/g,'');const a=Math.floor(+ka.value),m=Math.floor(+km.value)||1;
   if(!c)c='FF'+Math.random().toString(36).slice(2,8).toUpperCase();
@@ -560,3 +659,4 @@ function banUser(id,name,cur){
 }
 sb.auth.onAuthStateChange(()=>{});
 render();
+loadMusic();

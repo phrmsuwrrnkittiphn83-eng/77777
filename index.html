@@ -78,6 +78,8 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
 .res{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--line)}.res img{width:56px;height:56px;border-radius:10px;object-fit:cover;cursor:zoom-in}
 .gar{background:rgba(245,158,11,.12);border:1px solid #f59e0b;border-radius:10px;padding:6px 10px;font-size:13px;margin:8px 0}
 .qty input{width:92px;text-align:center;padding:8px}
+.mbtn{position:fixed;left:14px;bottom:calc(18px + env(safe-area-inset-bottom,0px));z-index:40;width:46px;height:46px;border-radius:50%;border:0;background:linear-gradient(135deg,var(--pri),var(--pri2));color:#fff;font-size:20px;box-shadow:var(--shadow);cursor:pointer}
+.mbox{position:fixed;left:14px;bottom:calc(72px + env(safe-area-inset-bottom,0px));z-index:40;width:200px;border-radius:12px;overflow:hidden;box-shadow:var(--shadow);background:#000}.mbox video,.mbox iframe{width:200px;height:112px;display:block;object-fit:contain}
 </style>
 </head>
 <body>
@@ -86,8 +88,8 @@ footer{text-align:center;color:var(--mut);font-size:12px;padding:20px 0 30px}
 <footer>FF Shop · ร้านขายไอดี Free Fire · ระบบเติมเงินผ่าน TrueMoney</footer>
 <div id="layer"></div>
 
-<script src="config.js?v=7"></script>
+<script src="config.js?v=9"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="app.js?v=7"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
