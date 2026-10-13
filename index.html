@@ -75,7 +75,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--pri2);outline:none}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}
 .card{background:var(--card);box-shadow:var(--shadow);border-radius:4px;overflow:hidden;display:flex;flex-direction:column}
 .pimg{position:relative;aspect-ratio:4/3;display:grid;place-items:center;font-size:44px;overflow:hidden;background:repeating-conic-gradient(from 0deg at 50% 130%,#ffd21a 0 8deg,#ffbf00 8deg 16deg)}
-.pimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.pimg img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#1b1b1b}
 .pimg .tag,.pimg .stk,.pimg .rnd,.pimg .cnt{position:absolute;font-size:11px;font-weight:600;padding:1px 8px;border-radius:99px;background:rgba(0,0,0,.6);color:#fff}
 .pimg .tag{top:6px;left:6px}.pimg .stk{bottom:6px;right:6px;background:#25a244}.pimg .rnd{bottom:6px;left:6px;background:#8e2b9c}.pimg .cnt{top:6px;right:6px}
 .pb{padding:10px;display:flex;flex-direction:column;gap:4px;flex:1}
@@ -120,6 +120,16 @@ body[data-route="gacha"] .md img{max-width:100%!important;width:72px!important;h
 body[data-route="gacha"] .md img.gcover{width:auto!important;height:auto!important;max-height:150px!important;object-fit:contain!important;display:block!important;margin:0 auto 10px!important;border-radius:10px}
 body[data-route="orders"] #app img{max-height:90px;width:auto;object-fit:contain}
 body[data-route="admin"] #app img{max-height:90px;width:auto;object-fit:contain}
+/* ตัดรูปก่อนอัปโหลด */
+.cropov{position:fixed;inset:0;z-index:120;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;padding:12px;overflow:auto}
+.cropbox{background:#fff;border-radius:10px;padding:14px;width:100%;max-width:400px;max-height:96vh;overflow:auto}
+.cropbox h3{margin:0 0 8px;color:var(--pri)}
+.cropst{display:flex;justify-content:center;background:#222;border-radius:6px;padding:6px}
+.cropst canvas{touch-action:none;cursor:grab;border-radius:4px;background:#fff;max-width:100%}
+.copt{display:flex;flex-wrap:wrap;gap:6px}
+.copt button{border:1.5px solid #f5a700;background:#fff;color:#d98a00;border-radius:99px;padding:5px 12px;font-size:13px;cursor:pointer}
+.copt button.on{background:#ffa31a;color:#fff}
+.cropbox input[type=range]{padding:0;border:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -174,6 +184,78 @@ body[data-route="admin"] #app img{max-height:90px;width:auto;object-fit:contain}
       if(a && !a.children.length && typeof render==='function') render();
     },600);
   });
+})();
+</script>
+<script>
+(function(){
+  var ASP=[['4:3 การ์ดสินค้า',4/3],['1:1 จัตุรัส',1],['16:9 กว้าง',16/9],['3:4 แนวตั้ง',3/4],['ทั้งรูป','o']];
+  var OUT=[['เล็ก',480],['กลาง',800],['ใหญ่',1200]];
+  function loadImg(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f),im=new Image();im.onload=function(){res({im:im,url:u})};im.onerror=function(){URL.revokeObjectURL(u);rej()};im.src=u})}
+  function opts(k,list,cur){return list.map(function(o,i){return '<button type="button" data-k="'+k+'" data-i="'+i+'" class="'+(i===cur?'on':'')+'">'+o[0]+'</button>'}).join('')}
+  function cropOne(file,i,n){
+    return loadImg(file).then(function(o){return new Promise(function(done){
+      var im=o.im,iw=im.naturalWidth,ih=im.naturalHeight;
+      var st={a:0,o:1,zoom:1,ox:0,oy:0},W0=Math.min(320,innerWidth-70),W=W0,H=W0;
+      var wrap=document.createElement('div');wrap.className='cropov';
+      wrap.innerHTML='<div class="cropbox"><div class="row"><h3>ตัดรูป'+(n>1?' ('+(i+1)+'/'+n+')':'')+'</h3><button type="button" class="btn g sm" data-a="no">ไม่ใช้รูปนี้</button></div><div class="cropst"><canvas></canvas></div><p class="mut" style="text-align:center;margin:6px 0">ลากรูปเพื่อเลือกส่วนที่จะแสดง · เลื่อนแถบเพื่อซูม</p><input type="range" class="cz" min="1" max="4" step="0.01" value="1"><label>สัดส่วนรูป</label><div class="copt" id="co_a"></div><label>ขนาดไฟล์</label><div class="copt" id="co_o"></div><div class="row" style="margin-top:14px"><button type="button" class="btn g" data-a="skip">ใช้รูปเดิม</button><button type="button" class="btn" data-a="ok">ตัดรูป</button></div></div>';
+      document.body.appendChild(wrap);
+      var cv=wrap.querySelector('canvas'),ctx=cv.getContext('2d');
+      function asp(){var v=ASP[st.a][1];return v==='o'?iw/ih:v}
+      function layout(){var a=asp();W=W0;H=W/a;if(H>380){H=380;W=H*a}cv.width=Math.round(W);cv.height=Math.round(H);st.ox=0;st.oy=0}
+      function sc(){return Math.max(W/iw,H/ih)*st.zoom}
+      function clamp(){var s=sc(),mx=Math.max(0,(iw*s-W)/2),my=Math.max(0,(ih*s-H)/2);st.ox=Math.max(-mx,Math.min(mx,st.ox));st.oy=Math.max(-my,Math.min(my,st.oy))}
+      function draw(){clamp();var s=sc(),dw=iw*s,dh=ih*s;ctx.fillStyle='#fff';ctx.fillRect(0,0,cv.width,cv.height);ctx.drawImage(im,(W-dw)/2+st.ox,(H-dh)/2+st.oy,dw,dh)}
+      function paint(){wrap.querySelector('#co_a').innerHTML=opts('a',ASP,st.a);wrap.querySelector('#co_o').innerHTML=opts('o',OUT,st.o)}
+      function close(r){URL.revokeObjectURL(o.url);wrap.remove();done(r)}
+      layout();paint();draw();
+      var drag=null;
+      cv.onpointerdown=function(e){drag={x:e.clientX,y:e.clientY};cv.setPointerCapture(e.pointerId)};
+      cv.onpointermove=function(e){if(!drag)return;st.ox+=e.clientX-drag.x;st.oy+=e.clientY-drag.y;drag={x:e.clientX,y:e.clientY};draw()};
+      cv.onpointerup=cv.onpointercancel=function(){drag=null};
+      wrap.querySelector('.cz').oninput=function(){st.zoom=+this.value;draw()};
+      wrap.addEventListener('click',function(e){
+        var b=e.target.closest('button');if(!b)return;
+        if(b.dataset.k){st[b.dataset.k]=+b.dataset.i;if(b.dataset.k==='a')layout();paint();draw();return}
+        var a=b.dataset.a;
+        if(a==='no')return close(null);
+        if(a==='skip')return close(file);
+        if(a==='ok'){
+          var out=OUT[st.o][1],r=out/W,oc=document.createElement('canvas');
+          oc.width=out;oc.height=Math.round(H*r);
+          var c2=oc.getContext('2d'),s=sc(),dw=iw*s,dh=ih*s;
+          c2.fillStyle='#fff';c2.fillRect(0,0,oc.width,oc.height);
+          c2.drawImage(im,((W-dw)/2+st.ox)*r,((H-dh)/2+st.oy)*r,dw*r,dh*r);
+          oc.toBlob(function(bl){
+            if(!bl)return close(file);
+            var base=(file.name||'image').replace(/\.[^.]+$/,'');
+            close(new File([bl],base+'.jpg',{type:'image/jpeg'}));
+          },'image/jpeg',0.88);
+        }
+      });
+    })}).catch(function(){return file});
+  }
+  var busy=false;
+  document.addEventListener('change',async function(e){
+    var t=e.target;
+    if(!t||t.type!=='file')return;
+    if(t._skip){t._skip=false;return}
+    if(document.body.getAttribute('data-route')!=='admin')return;
+    var files=Array.prototype.slice.call(t.files||[]);
+    if(!files.some(function(f){return /^image\/(jpeg|png|webp)$/.test(f.type)}))return;
+    e.stopImmediatePropagation();
+    if(busy)return;busy=true;
+    var out=[];
+    for(var i=0;i<files.length;i++){
+      var f=files[i];
+      if(/^image\/(jpeg|png|webp)$/.test(f.type)){var r=await cropOne(f,i,files.length);if(r)out.push(r)}
+      else out.push(f);
+    }
+    busy=false;
+    if(!out.length){t.value='';return}
+    var dt=new DataTransfer();out.forEach(function(f){dt.items.add(f)});
+    t.files=dt.files;t._skip=true;
+    t.dispatchEvent(new Event('change',{bubbles:true}));
+  },true);
 })();
 </script>
 </body>
