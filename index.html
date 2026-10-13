@@ -111,6 +111,12 @@ th{color:var(--mut);font-weight:500}
 footer{margin-top:20px;background:#8a96a3;color:#fff;text-align:center;padding:20px 16px calc(14px + env(safe-area-inset-bottom,0px));font-size:13px}
 footer b{font-size:16px;font-weight:500}
 footer .copy{margin-top:12px;opacity:.85;font-size:12px}
+/* กล่องสุ่ม: จำกัดขนาดรูปไม่ให้ใหญ่เกิน */
+#app img{max-width:100%;height:auto}
+body[data-route="gacha"] #app img{max-width:100%;max-height:130px;width:auto;object-fit:contain;display:block;margin:0 auto}
+body[data-route="gacha"] .ov img,body[data-route="gacha"] .md img{max-width:100%;max-height:200px;width:auto;object-fit:contain;display:block;margin:8px auto}
+body[data-route="orders"] #app img{max-height:90px;width:auto;object-fit:contain}
+body[data-route="admin"] #app img{max-height:90px;width:auto;object-fit:contain}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -148,6 +154,8 @@ footer .copy{margin-top:12px;opacity:.85;font-size:12px}
   s.onclick=close;
   document.getElementById('nav').addEventListener('click',function(e){if(e.target.closest('a,button'))close()});
   addEventListener('hashchange',close);
+  function rt(){document.body.setAttribute('data-route',(location.hash||'#/').slice(2).split('/')[0])}
+  rt();addEventListener('hashchange',rt);
   // กันหน้าว่าง: ถ้า app.js ไม่ได้เรียก render เอง ให้เรียกให้
   addEventListener('load',function(){
     setTimeout(function(){
